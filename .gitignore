@@ -1,0 +1,41 @@
+# 排除文档目录
+docs/
+optics_term_paper.md
+
+# 排除输出目录
+output/
+
+# 排除视频文件
+videos/
+*.mp4
+*.avi
+*.mov
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.log
+*.tmp
+*.bak

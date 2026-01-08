@@ -4,28 +4,40 @@
 
 import argparse
 import os
+import sys
 import time
 
 import cv2
 import numpy as np
-from utils import (
+
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import (
     detect_color_ellipses,
     filter_trajectory,
     load_config,
+    get_data_dir,
 )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render detection results onto the original video")
+    parser = argparse.ArgumentParser(
+        description="Render detection results onto the original video"
+    )
     parser.add_argument("--video", required=True, help="Input video file path")
     parser.add_argument(
-        "--output", help="Output video path (default: output/videos/detection_result.mp4)"
+        "--output",
+        help="Output video path (default: output/videos/detection_result.mp4)",
     )
     parser.add_argument(
-        "--show-trail", action="store_true", help="Show trajectory trails (recent 30 frames)"
+        "--show-trail",
+        action="store_true",
+        help="Show trajectory trails (recent 30 frames)",
     )
     parser.add_argument(
-        "--filter-motion", action="store_true", help="Only show trajectories with motion amplitude > 5.0"
+        "--filter-motion",
+        action="store_true",
+        help="Only show trajectories with motion amplitude > 5.0",
     )
     args = parser.parse_args()
 
@@ -110,7 +122,7 @@ def main():
     else:
         # 提取输入视频文件名（不含扩展名）
         video_basename = os.path.splitext(os.path.basename(args.video))[0]
-        output_dir = os.path.join(os.path.dirname(__file__), "..", "output", "videos")
+        output_dir = str(get_data_dir("processed/videos"))
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"detection_{video_basename}.mp4")
 

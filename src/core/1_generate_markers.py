@@ -4,15 +4,14 @@
 
 import json
 import os
+import sys
 
 import cv2
 import numpy as np
 
-
-def load_config():
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "colors.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import load_config, get_data_dir
 
 
 def main():
@@ -24,7 +23,7 @@ def main():
     dot_radius = 400
 
     # 输出目录
-    output_dir = os.path.join(os.path.dirname(__file__), "..", "output", "markers")
+    output_dir = str(get_data_dir("processed/markers"))
     os.makedirs(output_dir, exist_ok=True)
 
     print("Generating color marker dots...")
@@ -52,9 +51,9 @@ def main():
         success, encoded_img = cv2.imencode(".png", img)
         if success:
             encoded_img.tofile(output_path)
-            print(f"✓ {filename}")
+            print(f"[OK] {filename}")
         else:
-            print(f"✗ Save failed: {filename}")
+            print(f"[FAIL] Save failed: {filename}")
 
     print(f"\nDone! All markers generated in: {output_dir}")
     print("\nInstructions:")

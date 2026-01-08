@@ -1,0 +1,92 @@
+% !TEX root = optics_term_paper.tex
+
+% ==================== 5 讨论：光学因素与改进建议 ====================
+\section{讨论：光学因素与改进建议}
+
+\subsection{主要失败模式归因}
+
+\begin{table}[htbp]
+\centering
+\caption{视觉测量系统常见失效模式分析}
+\begin{tabular}{lll}
+\toprule
+失败模式 & 光学原因 & 解决方案 \\
+\midrule
+过曝导致检测失败 & S 饱和度降低，阈值失效 & 多段 HSV + 移除 S 下限硬约束 \\
+运动模糊导致拟合失败 & 轮廓拉长变形 & 放宽长宽比阈值至 15.0 \\
+背景误检 & 颜色相似区域 & 排除模式 + ROI 框选 \\
+噪点被误判为椭圆 & 碎片形状 & 圆度 + 面积比双约束 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{光学端改进建议}
+
+\begin{enumerate}
+    \item \textbf{补光}：使用漫射光源（如 LED 柔光灯），减少高光与阴影；
+    \item \textbf{偏振}：光源前 + 镜头前加交叉偏振片，抑制镜面反射；
+    \item \textbf{材料}：改用哑光贴纸或喷砂膜，减少高光；
+    \item \textbf{相机设置}：锁定曝光与白平衡，缩短快门时间以减少模糊。
+\end{enumerate}
+
+\subsection{算法端改进建议}
+
+\begin{enumerate}
+    \item \textbf{自适应阈值}：根据图像整体亮度动态调整 S/V 范围；
+    \item \textbf{运动预测}：引入卡尔曼滤波，利用历史轨迹预测当前位置，减少漏检；
+    \item \textbf{相机标定}：进行内参标定与去畸变，提升边缘区域定位精度。
+\end{enumerate}
+
+\subsection{系统误差分析}
+
+视觉测量系统的误差可分为以下几类：
+
+\subsubsection{随机误差}
+
+\begin{table}[htbp]
+\centering
+\caption{系统随机误差来源分析}
+\begin{tabular}{lll}
+\toprule
+误差来源 & 典型量级 & 影响 \\
+\midrule
+椭圆拟合中心定位 & 0.3–1.0 像素 & 直接影响 2D 坐标精度 \\
+形态学处理导致轮廓偏移 & 1–2 像素 & 影响椭圆拟合质量 \\
+图像量化噪声 & 0.5 像素 & 在差分运算中被放大 \\
+帧间检测跳点 & 偶发 & 通过时空连续性过滤抑制 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{系统误差}
+
+\begin{enumerate}
+    \item \textbf{相机标定误差}
+    \begin{itemize}
+        \item 未进行内参标定时，镜头径向畸变会导致图像边缘区域的标记定位存在 \textbf{1–3 像素}的系统偏移；
+        \item 外参标定不精确会导致多视图三角测量的重投影误差增大。
+    \end{itemize}
+    \item \textbf{透视投影误差}
+    \begin{itemize}
+        \item 标记点直径在图像中的投影尺寸随距离变化：$d_{px} = fD/Z$；
+        \item 当物体距相机距离变化较大时，需考虑尺度修正。
+    \end{itemize}
+    \item \textbf{时间同步误差}
+    \begin{itemize}
+        \item 多相机采集若无硬件同步，帧间时间偏差可达 \textbf{1–2 帧}；
+        \item 对于 60 fps 的视频，这相当于 \textbf{16–33 ms} 的时间偏移，在高速旋转场景中会导致显著的姿态误差。
+    \end{itemize}
+    \item \textbf{物体形状偏离假设}
+    \begin{itemize}
+        \item 若刚体质量分布不均匀，实际主惯量轴与几何主轴存在偏差；
+        \item 这种偏差在动力学验证中会表现为理论与实验的系统性差异。
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{误差传递与累积}
+
+在从像素坐标到物理量（如角速度）的计算链路中，误差会逐级传递并可能放大：
+\begin{equation}
+\delta\omega \sim \frac{\delta\theta}{\Delta t} \sim \frac{\delta p / L}{\Delta t}
+\end{equation}
+其中 $\delta p$ 为像素定位误差，$L$ 为特征臂长（像素），$\Delta t$ 为帧间隔。对于典型参数（$\delta p = 1$ px，$L = 100$ px，$\Delta t = 1/60$ s），角速度误差约为 $\delta\omega \sim 0.6$ rad/s，这与实验中观测到的角速度 MAE（约 2.28 rad/s）同阶。

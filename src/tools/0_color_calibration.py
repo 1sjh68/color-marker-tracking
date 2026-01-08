@@ -16,14 +16,23 @@
 import argparse
 import json
 import os
+import sys
 
 import cv2
 import numpy as np
-from utils import detect_color_with_wrap, load_config, put_chinese_text
+
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import (
+    detect_color_with_wrap,
+    load_config,
+    put_chinese_text,
+    get_config_path,
+)
 
 
 def save_config(config):
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "colors.json")
+    config_path = str(get_config_path())
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
     print("✓ Config saved")
@@ -67,14 +76,14 @@ class ColorCalibrator:
         self.sampling = False
         self.sample_point = None
         self.exclude_mode = False  # 反选排除模式
-        self.append_mode = False   # 追加模式：True=追加新范围，False=覆盖
+        self.append_mode = False  # 追加模式：True=追加新范围，False=覆盖
         self.window_name = "Color Calibration Tool - Click to Calibrate"
-        
+
         # ROI框选相关
-        self.roi_mode = False       # ROI选择模式
+        self.roi_mode = False  # ROI选择模式
         self.roi_selecting = False  # 正在框选
-        self.roi_start = None       # 框选起点
-        self.roi_end = None         # 框选终点
+        self.roi_start = None  # 框选起点
+        self.roi_end = None  # 框选终点
         self.roi = self.config.get("roi", None)  # 从配置加载ROI [x1, y1, x2, y2]
 
         # 创建窗口和鼠标回调
@@ -92,7 +101,7 @@ class ColorCalibrator:
         sx = 1.0 / max(self.display_scale, 1e-6)
         src_x = int(round(x * sx))
         src_y = int(round(y * sx))
-        
+
         if self.roi_mode:
             # ROI框选模式
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -113,7 +122,7 @@ class ColorCalibrator:
                     self.roi = [x1, y1, x2, y2]
                     self.config["roi"] = self.roi
                     print(f"\n✓ ROI set: [{x1}, {y1}] - [{x2}, {y2}]")
-                    print(f"  Size: {x2-x1} x {y2-y1} pixels")
+                    print(f"  Size: {x2 - x1} x {y2 - y1} pixels")
                 else:
                     print("\n✗ ROI too small, ignored")
                 self.roi_mode = False
@@ -156,22 +165,21 @@ class ColorCalibrator:
 
     def set_hsv_range(self, color_def, hsv_lower, hsv_upper):
         """设置HSV范围（支持覆盖和追加模式）
-        
+
         Args:
             color_def: 颜色定义
             hsv_lower: HSV下界
             hsv_upper: HSV上界
         """
         new_range = {"lower": hsv_lower, "upper": hsv_upper}
-        
+
         if self.append_mode:
             # 追加模式：添加到 hsv_ranges 数组
             if "hsv_ranges" not in color_def:
                 # 如果还没有 hsv_ranges，先用现有范围初始化
-                color_def["hsv_ranges"] = [{
-                    "lower": color_def["hsv_lower"],
-                    "upper": color_def["hsv_upper"]
-                }]
+                color_def["hsv_ranges"] = [
+                    {"lower": color_def["hsv_lower"], "upper": color_def["hsv_upper"]}
+                ]
             color_def["hsv_ranges"].append(new_range)
             print(f"  [APPEND] Total ranges: {len(color_def['hsv_ranges'])}")
         else:
@@ -184,7 +192,7 @@ class ColorCalibrator:
 
     def exclude_color(self, hsv_exclude, color_def):
         """反选排除：添加排除区域到hsv_excludes列表
-        
+
         排除逻辑：在并集结果中挖掉指定的HSV区域
         检测掩码 = (范围1 ∪ 范围2 ∪ ...) - (排除1 ∪ 排除2 ∪ ...)
 
@@ -193,52 +201,52 @@ class ColorCalibrator:
             color_def: 当前颜色定义
         """
         h_ex, s_ex, v_ex = [int(x) for x in hsv_exclude]
-        
+
         # 计算排除范围（以采样点为中心的小区域）
         margin_h = 10
         margin_s = 40
         margin_v = 50
-        
+
         exclude_lower = [
             max(0, h_ex - margin_h),
             max(0, s_ex - margin_s),
-            max(0, v_ex - margin_v)
+            max(0, v_ex - margin_v),
         ]
         exclude_upper = [
             min(180, h_ex + margin_h),
             min(255, s_ex + margin_s),
-            min(255, v_ex + margin_v)
+            min(255, v_ex + margin_v),
         ]
-        
+
         # 初始化排除列表（如果不存在）
         if "hsv_excludes" not in color_def:
             color_def["hsv_excludes"] = []
-        
+
         # 添加排除范围
-        color_def["hsv_excludes"].append({
-            "lower": exclude_lower,
-            "upper": exclude_upper
-        })
-        
-        print(f"  + Added exclusion zone: H[{exclude_lower[0]}-{exclude_upper[0]}] S[{exclude_lower[1]}-{exclude_upper[1]}] V[{exclude_lower[2]}-{exclude_upper[2]}]")
+        color_def["hsv_excludes"].append(
+            {"lower": exclude_lower, "upper": exclude_upper}
+        )
+
+        print(
+            f"  + Added exclusion zone: H[{exclude_lower[0]}-{exclude_upper[0]}] S[{exclude_lower[1]}-{exclude_upper[1]}] V[{exclude_lower[2]}-{exclude_upper[2]}]"
+        )
         print(f"  Total exclusion zones: {len(color_def['hsv_excludes'])}")
 
     def test_detection(self, frame, color_def):
         """测试检测效果（使用椭圆拟合+NMS，支持多范围）"""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
+
         # 支持多HSV范围：优先使用 hsv_ranges，否则回退到 hsv_lower/hsv_upper
         if "hsv_ranges" in color_def and color_def["hsv_ranges"]:
             hsv_ranges = color_def["hsv_ranges"]
         else:
-            hsv_ranges = [{
-                "lower": color_def["hsv_lower"],
-                "upper": color_def["hsv_upper"]
-            }]
+            hsv_ranges = [
+                {"lower": color_def["hsv_lower"], "upper": color_def["hsv_upper"]}
+            ]
 
         # 红色需要特殊处理
         is_red = color_def["id"] == 0
-        
+
         # 对每个HSV范围检测并合并掩码
         combined_mask = None
         for hsv_range in hsv_ranges:
@@ -249,9 +257,9 @@ class ColorCalibrator:
                 combined_mask = range_mask
             else:
                 combined_mask = cv2.bitwise_or(combined_mask, range_mask)
-        
+
         mask = combined_mask
-        
+
         # 应用排除区域（从并集中挖掉）
         if "hsv_excludes" in color_def and color_def["hsv_excludes"]:
             for exclude_range in color_def["hsv_excludes"]:
@@ -265,7 +273,7 @@ class ColorCalibrator:
         kernel_large = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_large, iterations=2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_small, iterations=1)
-        
+
         # 应用ROI掩码（如果指定）
         if self.roi:
             h, w = frame.shape[:2]
@@ -285,7 +293,7 @@ class ColorCalibrator:
         MIN_AREA = 100
         NMS_DISTANCE = 30
         MIN_CIRCULARITY = 0.3  # 最小圆度
-        MIN_AREA_RATIO = 0.5   # 最小面积匹配度
+        MIN_AREA_RATIO = 0.5  # 最小面积匹配度
 
         # 收集有效的椭圆
         candidates = []
@@ -306,21 +314,21 @@ class ColorCalibrator:
 
                     if aspect_ratio > MAX_ASPECT_RATIO:
                         continue
-                    
+
                     # 圆度检验
                     perimeter = cv2.arcLength(contour, True)
                     if perimeter > 0:
                         circularity = 4 * np.pi * area / (perimeter * perimeter)
                         if circularity < MIN_CIRCULARITY:
                             continue
-                    
+
                     # 面积匹配度检验
                     ellipse_area = np.pi * (width / 2) * (height / 2)
                     if ellipse_area > 0:
                         area_ratio = area / ellipse_area
                         if area_ratio < MIN_AREA_RATIO or area_ratio > 2.0:
                             continue
-                    
+
                     candidates.append((cx, cy, area, ellipse, contour))
                 except cv2.error:
                     pass  # 拟合失败直接跳过，不回退
@@ -334,7 +342,7 @@ class ColorCalibrator:
                 cx, cy = cand[0], cand[1]
                 is_duplicate = False
                 for kept in keep:
-                    dist = np.sqrt((cx - kept[0])**2 + (cy - kept[1])**2)
+                    dist = np.sqrt((cx - kept[0]) ** 2 + (cy - kept[1]) ** 2)
                     if dist < NMS_DISTANCE:
                         is_duplicate = True
                         break
@@ -365,7 +373,11 @@ class ColorCalibrator:
             append_text = "[+APPEND]" if self.append_mode else ""
             roi_text = "[ROI]" if self.roi else ""
             title_text = f"Calibration {mode_text} {append_text} {roi_text}"
-            title_color = (0, 255, 0) if self.append_mode else ((0, 255, 255) if self.exclude_mode else (255, 255, 255))
+            title_color = (
+                (0, 255, 0)
+                if self.append_mode
+                else ((0, 255, 255) if self.exclude_mode else (255, 255, 255))
+            )
         cv2.putText(
             overlay,
             title_text,
@@ -407,9 +419,7 @@ class ColorCalibrator:
                 )
 
             # 颜色方块
-            cv2.rectangle(
-                overlay, (x_offset, 15), (x_offset + 25, 40), color_bgr, -1
-            )
+            cv2.rectangle(overlay, (x_offset, 15), (x_offset + 25, 40), color_bgr, -1)
             cv2.rectangle(
                 overlay, (x_offset, 15), (x_offset + 25, 40), (255, 255, 255), 1
             )
@@ -503,12 +513,12 @@ class ColorCalibrator:
                 else:
                     # 正向标定模式
                     hsv_lower, hsv_upper = calculate_hsv_range(hsv_mean)
-                    
+
                     print(f"\nCalibrated {color_def['name']}:")
                     print(f"  BGR mean: {bgr_mean.astype(int).tolist()}")
                     print(f"  HSV mean: {hsv_mean.astype(int).tolist()}")
                     print(f"  HSV range: {hsv_lower} - {hsv_upper}")
-                    
+
                     # 使用新方法设置范围（支持覆盖/追加模式）
                     self.set_hsv_range(color_def, hsv_lower, hsv_upper)
 
@@ -546,14 +556,30 @@ class ColorCalibrator:
             if self.roi:
                 x1, y1, x2, y2 = self.roi
                 cv2.rectangle(frame_display, (x1, y1), (x2, y2), (255, 0, 255), 2)
-                cv2.putText(frame_display, "ROI", (x1 + 5, y1 + 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
-            
+                cv2.putText(
+                    frame_display,
+                    "ROI",
+                    (x1 + 5, y1 + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 0, 255),
+                    2,
+                )
+
             # 绘制正在框选的ROI
             if self.roi_selecting and self.roi_start and self.roi_end:
-                cv2.rectangle(frame_display, self.roi_start, self.roi_end, (0, 255, 255), 2)
-                cv2.putText(frame_display, "Selecting ROI...", (self.roi_start[0], self.roi_start[1] - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.rectangle(
+                    frame_display, self.roi_start, self.roi_end, (0, 255, 255), 2
+                )
+                cv2.putText(
+                    frame_display,
+                    "Selecting ROI...",
+                    (self.roi_start[0], self.roi_start[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 255),
+                    2,
+                )
 
             # 绘制UI
             frame_display = self.draw_ui(frame_display)
@@ -584,16 +610,22 @@ class ColorCalibrator:
                 save_config(self.config)
             elif key == ord("e"):
                 self.exclude_mode = not self.exclude_mode
-                mode_name = "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                mode_name = (
+                    "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                )
                 print(f"\nSwitched to: {mode_name}")
                 if self.exclude_mode:
-                    print("Tip: Click on unwanted areas (e.g. skin) to shrink HSV range")
+                    print(
+                        "Tip: Click on unwanted areas (e.g. skin) to shrink HSV range"
+                    )
                 else:
                     print("Tip: Click on target color area to calibrate")
             elif key == ord("a"):
                 # 切换追加模式
                 self.append_mode = not self.append_mode
-                mode_name = "APPEND (Multi-Range)" if self.append_mode else "OVERWRITE (Single)"
+                mode_name = (
+                    "APPEND (Multi-Range)" if self.append_mode else "OVERWRITE (Single)"
+                )
                 print(f"\nAppend Mode: {mode_name}")
                 if self.append_mode:
                     print("Tip: Each click will ADD a new HSV range to the color")
@@ -605,10 +637,16 @@ class ColorCalibrator:
                     color_def = self.colors[self.current_color_id]
                     if "hsv_ranges" in color_def:
                         del color_def["hsv_ranges"]
-                        print(f"\nCleared all additional HSV ranges for {color_def['name']}")
-                        print(f"  Keeping single range: {color_def['hsv_lower']} - {color_def['hsv_upper']}")
+                        print(
+                            f"\nCleared all additional HSV ranges for {color_def['name']}"
+                        )
+                        print(
+                            f"  Keeping single range: {color_def['hsv_lower']} - {color_def['hsv_upper']}"
+                        )
                     else:
-                        print(f"\n{color_def['name']} has no additional ranges to clear")
+                        print(
+                            f"\n{color_def['name']} has no additional ranges to clear"
+                        )
             elif key == ord("x"):
                 # 清除当前颜色的所有排除区域
                 if self.current_color_id is not None:
@@ -616,7 +654,9 @@ class ColorCalibrator:
                     if "hsv_excludes" in color_def and color_def["hsv_excludes"]:
                         count = len(color_def["hsv_excludes"])
                         del color_def["hsv_excludes"]
-                        print(f"\n✓ Cleared {count} exclusion zones for {color_def['name']}")
+                        print(
+                            f"\n✓ Cleared {count} exclusion zones for {color_def['name']}"
+                        )
                     else:
                         print(f"\n{color_def['name']} has no exclusion zones to clear")
             elif key == ord("o"):
@@ -638,14 +678,20 @@ class ColorCalibrator:
                 if color_id < len(self.colors):
                     self.current_color_id = color_id
                     color_def = self.colors[color_id]
-                    mode_name = "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                    mode_name = (
+                        "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                    )
                     append_info = " [APPEND]" if self.append_mode else ""
-                    print(f"\nSelected color: {color_def['name']} [{mode_name}]{append_info}")
+                    print(
+                        f"\nSelected color: {color_def['name']} [{mode_name}]{append_info}"
+                    )
                     # 显示当前范围数量
                     if "hsv_ranges" in color_def:
                         print(f"  Current HSV ranges: {len(color_def['hsv_ranges'])}")
                     else:
-                        print(f"  Current HSV range: {color_def['hsv_lower']} - {color_def['hsv_upper']}")
+                        print(
+                            f"  Current HSV range: {color_def['hsv_lower']} - {color_def['hsv_upper']}"
+                        )
                     if self.exclude_mode:
                         print("Please click on interference area to exclude")
                     else:
@@ -658,7 +704,9 @@ class ColorCalibrator:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Color calibration tool")
-    parser.add_argument("--camera", type=int, default=0, help="Camera index (default 0)")
+    parser.add_argument(
+        "--camera", type=int, default=0, help="Camera index (default 0)"
+    )
     args = parser.parse_args()
 
     calibrator = ColorCalibrator()

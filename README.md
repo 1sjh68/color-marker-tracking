@@ -27,52 +27,64 @@ pip install -r requirements.txt
 
 ```bash
 # 1. 生成标记点图片
-python scripts/1_generate_markers.py
+python src/core/1_generate_markers.py
 
 # 2. 打印标记点并贴在刚体上（推荐 10cm×10cm，光面相纸）
 
-# 3. 拍摄视频（60fps 或更高）
+# 3. 拍摄视频（60fps 或更高），将视频放入 data/raw/
 
 # 4. 检测与跟踪
-python scripts/2_detect_and_track.py --video "your_video.mp4"
+python src/core/2_detect_and_track.py --video "data/raw/your_video.mp4"
 
 # 5. 导出数据（可选）
-python scripts/4_export_csv.py --video "your_video.mp4"
+python src/core/4_export_csv.py --video "data/raw/your_video.mp4"
 
 # 6. 3D 可视化（可选）
-python scripts/3_visualize_3d.py --video "your_video.mp4"
+python src/core/3_visualize_3d.py --video "data/raw/your_video.mp4"
 
 # 7. 渲染检测视频（可选）
-python scripts/5_render_detection_video.py --video "your_video.mp4"
+python src/core/5_render_detection_video.py --video "data/raw/your_video.mp4"
 ```
 
 ## 项目结构
 
 ```
 视觉方案/
+├── src/
+│   ├── core/                   # 核心功能脚本
+│   │   ├── 1_generate_markers.py    # 生成标记点图片
+│   │   ├── 2_detect_and_track.py    # 检测与跟踪（主程序）
+│   │   ├── 3_visualize_3d.py        # 3D 轨迹可视化
+│   │   ├── 4_export_csv.py          # 导出 CSV 数据
+│   │   ├── 5_render_detection_video.py  # 渲染检测视频
+│   │   └── utils.py                 # 工具函数库
+│   └── tools/                  # 调试和校准工具
+│       ├── 0_color_calibration.py   # 颜色校准工具
+│       ├── 0_realtime_debug.py      # 实时调试工具
+│       └── 0_video_color_picker.py  # 视频颜色拾取工具
+├── scripts/
+│   ├── batch_process_videos.py  # 批量处理视频
+│   ├── 6_postprocess_trajectory.py    # 轨迹后处理
+│   └── 7_prepare_paper_assets_12_16.py  # 准备论文素材
 ├── config/
 │   └── colors.json              # 颜色定义和 HSV 参数
-├── docs/
-│   └── usage_guide.md           # 详细使用指南
-├── scripts/
-│   ├── 0_color_calibration.py   # 颜色校准工具
-│   ├── 0_realtime_debug.py      # 实时调试工具
-│   ├── 0_video_color_picker.py  # 视频颜色拾取工具
-│   ├── 1_generate_markers.py    # 生成标记点图片
-│   ├── 2_detect_and_track.py    # 检测与跟踪（主程序）
-│   ├── 3_visualize_3d.py        # 3D 轨迹可视化
-│   ├── 4_export_csv.py          # 导出 CSV 数据
-│   ├── 5_render_detection_video.py  # 渲染检测视频
-│   ├── batch_process_videos.py  # 批量处理视频
-│   └── utils.py                 # 工具函数库
-├── output/
-│   ├── markers/                 # 生成的标记点图片
-│   ├── trajectories/            # CSV 轨迹数据
-│   ├── visualizations/          # 3D 可视化图片
-│   └── videos/                  # 渲染的检测视频
-├── videos/                      # 待处理视频存放目录
-├── requirements.txt             # Python 依赖
-└── README.md                    # 本文件
+├── data/
+│   ├── raw/                    # 原始视频
+│   └── processed/               # 处理后的数据
+│       ├── markers/             # 生成的标记点图片
+│       ├── trajectories/        # CSV 轨迹数据
+│       ├── visualizations/      # 3D 可视化图片
+│       └── videos/              # 渲染的检测视频
+├── docs/                       # 文档
+│   ├── images/                 # 文档图片
+│   ├── latex/                  # LaTeX 论文文件
+│   └── references/             # 参考资料和笔记
+├── assets/                     # 演示文稿等资源
+│   └── PPT.pdf                 # 演示文稿
+├── reports/                    # 论文和报告
+│   └── optics_term_paper.md    # 光学课程论文
+├── requirements.txt            # Python 依赖
+└── README.md                   # 本文件
 ```
 
 ## 脚本功能详解
@@ -84,10 +96,10 @@ python scripts/5_render_detection_video.py --video "your_video.mp4"
 生成彩色圆点标记图片，用于打印和贴附。
 
 ```bash
-python scripts/1_generate_markers.py
+python src/core/1_generate_markers.py
 ```
 
-**输出**: `output/markers/` 目录下的彩色圆点图片（Red, Green, Blue, Yellow）
+**输出**: `data/processed/markers/` 目录下的彩色圆点图片（Red, Green, Blue, Yellow）
 
 **打印建议**:
 - 尺寸: 10cm × 10cm（可根据刚体大小调整）
@@ -101,7 +113,7 @@ python scripts/1_generate_markers.py
 核心功能：检测彩色标记点并跟踪其运动轨迹。
 
 ```bash
-python scripts/2_detect_and_track.py --video "path/to/video.mp4"
+python src/core/2_detect_and_track.py --video "data/raw/video.mp4"
 ```
 
 **算法流程**:
@@ -139,12 +151,12 @@ python scripts/2_detect_and_track.py --video "path/to/video.mp4"
 将轨迹数据导出为 CSV 格式，便于后续分析。
 
 ```bash
-python scripts/4_export_csv.py --video "video.mp4" --output "output.csv"
+python src/core/4_export_csv.py --video "data/raw/video.mp4" --output "data/processed/trajectories/output.csv"
 ```
 
 **参数**:
 - `--video`: 视频文件路径（必需）
-- `--output`: CSV 输出路径（可选，默认 `output/trajectories/trajectory_<视频名>.csv`）
+- `--output`: CSV 输出路径（可选，默认 `data/processed/trajectories/trajectory_<视频名>.csv`）
 - `--color-id`: 指定导出的颜色 ID（可选，默认导出全部颜色）
 
 **CSV 格式**:
@@ -162,11 +174,11 @@ frame_idx,color_id,u,v
 生成轨迹的 3D 时空图，用于直观分析运动模式。
 
 ```bash
-python scripts/3_visualize_3d.py --video "video.mp4"
+python src/core/3_visualize_3d.py --video "data/raw/video.mp4"
 ```
 
 **输出**: 
-- `output/visualizations/trajectory_3d_<视频名>.png`
+- `data/processed/visualizations/trajectory_3d_<视频名>.png`
 - 交互式 3D 图窗口
 
 **图表说明**:
@@ -183,16 +195,16 @@ python scripts/3_visualize_3d.py --video "video.mp4"
 将检测结果渲染为可视化视频。
 
 ```bash
-python scripts/5_render_detection_video.py --video "video.mp4" --filter-motion
+python src/core/5_render_detection_video.py --video "data/raw/video.mp4" --filter-motion
 ```
 
 **参数**:
 - `--video`: 视频文件路径（必需）
 - `--filter-motion`: 启用运动幅度过滤（推荐）
 - `--show-trail`: 显示最近 30 帧轨迹尾迹（可选）
-- `--output`: 输出视频路径（可选，默认 `output/videos/detection_<视频名>.mp4`）
+- `--output`: 输出视频路径（可选，默认 `data/processed/videos/detection_<视频名>.mp4`）
 
-**输出**: `output/videos/` 目录下的检测视频
+**输出**: `data/processed/videos/` 目录下的检测视频
 
 ---
 
@@ -201,11 +213,11 @@ python scripts/5_render_detection_video.py --video "video.mp4" --filter-motion
 批量处理多个视频文件。
 
 ```bash
-python scripts/batch_process_videos.py --video-dir "../videos"
+python scripts/batch_process_videos.py --video-dir "data/raw"
 ```
 
 **参数**:
-- `--video-dir`: 视频目录（默认 `../videos`）
+- `--video-dir`: 视频目录（默认 `data/raw`）
 - `--export-csv`: 导出 CSV（默认开启）
 - `--visualize-3d`: 生成 3D 图（默认开启）
 - `--render-video`: 渲染视频（默认开启）
@@ -222,7 +234,7 @@ python scripts/batch_process_videos.py --video-dir "../videos"
 交互式工具，用于校准 HSV 颜色范围。
 
 ```bash
-python scripts/0_color_calibration.py
+python src/tools/0_color_calibration.py
 ```
 
 **功能**:
@@ -239,11 +251,11 @@ python scripts/0_color_calibration.py
 从视频中拾取颜色并生成 HSV 参数。
 
 ```bash
-python scripts/0_video_color_picker.py --video "video.mp4"
+python src/tools/0_video_color_picker.py --video "data/raw/video.mp4"
 ```
 
 **功能**:
-- 支持不传 `--video` 时从 `videos/` 目录交互式选择
+- 支持不传 `--video` 时从 `data/raw/` 目录交互式选择
 - 在视频帧上点击标记点并自动推荐 HSV 范围
 - 支持排除模式（E）收缩范围，减少误检
 - 方向键/滑动条快速跳帧
@@ -255,7 +267,7 @@ python scripts/0_video_color_picker.py --video "video.mp4"
 实时调试检测效果（使用摄像头）。
 
 ```bash
-python scripts/0_realtime_debug.py
+python src/tools/0_realtime_debug.py
 ```
 
 **功能**: 实时显示检测结果，快速验证参数设置
@@ -342,9 +354,9 @@ python scripts/0_realtime_debug.py
 - **V (亮度)**: 0-255，降低下界可识别更暗的颜色
 
 **调优流程**:
-1. 使用 `0_video_color_picker.py` 获取推荐参数
-2. 使用 `0_color_calibration.py` 追加/排除细调并设置 ROI（可选）
-3. 使用 `2_detect_and_track.py` 验证效果
+1. 使用 `src/tools/0_video_color_picker.py` 获取推荐参数
+2. 使用 `src/tools/0_color_calibration.py` 追加/排除细调并设置 ROI（可选）
+3. 使用 `src/core/2_detect_and_track.py` 验证效果
 
 ---
 
@@ -382,7 +394,7 @@ python scripts/0_realtime_debug.py
 - 标记点褪色或损坏
 
 **解决方案**:
-1. 使用 `0_video_color_picker.py` 重新校准 HSV
+1. 使用 `src/tools/0_video_color_picker.py` 重新校准 HSV
 2. 增加光照，重新拍摄
 3. 打印更大的标记点（15cm × 15cm）
 4. 更换新的标记点
@@ -421,19 +433,30 @@ python scripts/0_realtime_debug.py
 
 **方法 1**: 查看统计信息
 ```bash
-python scripts/2_detect_and_track.py --video video.mp4
+python src/core/2_detect_and_track.py --video "data/raw/video.mp4"
 # 观察输出的运动幅度和覆盖率
 ```
 
 **方法 2**: 查看 3D 图
 ```bash
-python scripts/3_visualize_3d.py --video video.mp4
+python src/core/3_visualize_3d.py --video "data/raw/video.mp4"
 # 平滑连续的曲线 = 真实标记点
 ```
 
 **方法 3**: 手动指定颜色 ID
 ```bash
-python scripts/4_export_csv.py --video video.mp4 --color-id 0
+python src/core/4_export_csv.py --video "data/raw/video.mp4" --color-id 0
+```
+
+**方法 2**: 查看 3D 图
+```bash
+python src/core/3_visualize_3d.py --video "data/raw/video.mp4"
+# 平滑连续的曲线 = 真实标记点
+```
+
+**方法 3**: 手动指定颜色 ID
+```bash
+python src/core/4_export_csv.py --video "data/raw/video.mp4" --color-id 0
 ```
 
 ---
@@ -513,9 +536,9 @@ omega = [omega_skew[2,1], omega_skew[0,2], omega_skew[1,0]]
 详细使用指南请参考 `docs/usage_guide.md`
 
 **调试工具**:
-- 颜色校准: `scripts/0_color_calibration.py`
-- 视频拾取: `scripts/0_video_color_picker.py`
-- 实时调试: `scripts/0_realtime_debug.py`
+- 颜色校准: `src/tools/0_color_calibration.py`
+- 视频拾取: `src/tools/0_video_color_picker.py`
+- 实时调试: `src/tools/0_realtime_debug.py`
 
 **论文写作（光学课大作业模板）**:
 - 论文模板（含占位与写作提示）: `docs/optics_term_paper_template.md`

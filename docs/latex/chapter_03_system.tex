@@ -1,0 +1,512 @@
+% !TEX root = optics_term_paper.tex
+
+% ==================== 3 系统方案与算法流程 ====================
+\section{系统方案与算法流程}
+
+\begin{quote}
+本章目标：把"工程实现"写成可复现实验的方法学描述，并在每个环节指出对应的光学假设与限制。
+\end{quote}
+
+\subsection{系统总体流程}
+
+系统处理流程如下图所示：
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.9\textwidth}
+\begin{itemize}[label=$\downarrow$]
+    \item \textbf{1. 生成标记图} (\texttt{1\_generate\_markers.py})
+    \item \textbf{2. 打印粘贴标记} (选择哑光材质)
+    \item \textbf{3. 多相机布置/拍摄} (帧率/曝光/同步)
+    \item \textbf{4. HSV 标定} (\texttt{0\_color\_calibration.py}, \texttt{0\_video\_color\_picker.py})
+    \item \textbf{5. 离线检测跟踪} (\texttt{2\_detect\_and\_track.py})
+    \item \textbf{6. 导出 2D 轨迹 CSV} (\texttt{4\_export\_csv.py})
+    \item \textbf{7. 像素域后处理与拟合} (\texttt{6\_postprocess\_trajectory.py})
+    \item \textbf{8. 3D 时空可视化} (\texttt{3\_visualize\_3d.py}) / \textbf{9. 多相机 3D 重建} (12.16 数据集, \texttt{3d\_trajectories.csv})
+    \item \textbf{10. 动力学对比与诊断} (\texttt{comparison\_report.txt})
+    \item \textbf{11. 渲染结果视频} (\texttt{5\_render\_detection\_video.py})
+\end{itemize}
+\end{minipage}
+\caption{系统总体流程图}
+\end{figure}
+
+\subsection{标记设计与可观测性}
+
+\subsubsection{标记尺寸选择}
+
+标记点的像素尺寸应满足以下约束：
+\begin{itemize}
+    \item \textbf{下限}：至少 10-20 像素直径，以保证有足够的轮廓点（$\ge$ 5）进行椭圆拟合；
+    \item \textbf{上限}：不应过大以至遮挡其他标记或产生显著的透视形变。
+\end{itemize}
+
+经验公式：
+\begin{equation}
+d_{\text{px}} = \frac{f \cdot D}{Z} \geq 20 \text{ 像素}
+\end{equation}
+
+本项目按 \texttt{config/colors.json} 的颜色定义自动生成彩色圆点标记（默认 4 色：Red/Green/Blue/Yellow），便于多点跟踪时用“颜色”做身份区分：
+
+\begin{figure}[htbp]
+\centering
+\begin{tabular}{cc}
+\includegraphics[width=0.2\textwidth]{marker_0_red.png} & \includegraphics[width=0.2\textwidth]{marker_1_green.png} \\
+红色 (Red) & 绿色 (Green) \\
+\includegraphics[width=0.2\textwidth]{marker_2_blue.png} & \includegraphics[width=0.2\textwidth]{marker_3_yellow.png} \\
+蓝色 (Blue) & 黄色 (Yellow) \\
+\end{tabular}
+\caption{自动生成的彩色圆点标记（用于打印与贴附）}
+\end{figure}
+
+\subsubsection{颜色组合}
+
+本仓库默认配置 4 种颜色：红(0)、绿(1)、蓝(2)、黄(3)（见 \texttt{config/colors.json}）。选择颜色时应保证在 H 轴上尽量分离，以减少光照变化与白平衡漂移造成的混叠；当需要更多标记点时，可在同一框架下扩展更多颜色并重新标定阈值。
+
+\begin{table}[htbp]
+\centering
+\caption{标记点颜色选择建议}
+\begin{tabular}{ll}
+\toprule
+颜色 & H 范围（大致） \\
+\midrule
+红色 & 0-10, 170-180 \\
+黄色 & 15-35 \\
+绿色 & 40-80 \\
+蓝色 & 100-130 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{HSV 标定与多段范围}
+
+\subsubsection{标定工具}
+
+本项目提供三种标定工具：
+\begin{enumerate}
+    \item \textbf{\texttt{0\_video\_color\_picker.py}}：在已录制的视频帧上点击采样，适合离线标定；
+    \item \textbf{\texttt{0\_color\_calibration.py}}：实时摄像头采样，支持交互式调整；
+    \item \textbf{\texttt{0\_realtime\_debug.py}}：实时调试模式，用于验证检测效果。
+\end{enumerate}
+
+\subsubsection{多段 HSV 并集机制}
+
+传统单一阈值方法难以同时覆盖"亮处"与"暗处"的同一颜色。本项目设计了\textbf{追加模式（Append Mode）}：
+\begin{itemize}
+    \item 用户可多次点击同一颜色在不同光照下的区域；
+    \item 每次点击生成一个 HSV 范围，追加到 \texttt{hsv\_ranges} 数组；
+    \item 检测时，对所有范围分别生成掩码，然后取\textbf{并集}。
+\end{itemize}
+
+数学表示：
+\begin{equation}
+M_{\text{include}} = \bigcup_{i=1}^{N} \text{inRange}(\text{HSV}, L_i, U_i)
+\end{equation}
+
+\subsubsection{排除区域机制}
+
+为处理背景中颜色相近的干扰物（如皮肤、背景杂物），设计了\textbf{排除模式（Exclude Mode）}：
+\begin{itemize}
+    \item 用户点击干扰区域，系统记录其 HSV 值；
+    \item 以该点为中心生成一个小的 HSV 范围，加入 \texttt{hsv\_excludes} 数组；
+    \item 检测时，从并集掩码中\textbf{减去}排除区域。
+\end{itemize}
+
+数学表示：
+\begin{equation}
+M_{\text{final}} = M_{\text{include}} \setminus \bigcup_{j=1}^{M} \text{inRange}(\text{HSV}, E_j^L, E_j^U)
+\end{equation}
+
+\subsection{颜色分割、形态学处理与轮廓提取}
+
+\subsubsection{HSV 阈值化}
+
+对输入图像进行 BGR $\to$ HSV 转换后，使用 \texttt{cv2.inRange()} 生成二值掩码。
+
+\subsubsection{形态学处理}
+
+为填补过曝导致的中心空洞、连接断裂区域，采用\textbf{先闭后开}的形态学处理：
+\begin{enumerate}
+    \item \textbf{闭运算（Morphological Close）}：使用 (9,9) 椭圆核，迭代 2 次，填充小孔洞；
+    \item \textbf{开运算（Morphological Open）}：使用 (5,5) 椭圆核，迭代 1 次，去除小噪点。
+\end{enumerate}
+
+核大小的选择依据：与标记点在图像中的典型尺寸（约 20-40 像素）相匹配。
+
+\subsubsection{ROI 掩码}
+
+为了在背景复杂或存在相近颜色干扰时提高鲁棒性，可仅在感兴趣区域（ROI, Region of Interest）内进行检测：
+\begin{enumerate}
+    \item 在原始图像坐标系下定义 ROI：\texttt{roi = [x1, y1, x2, y2]}；
+    \item 生成二值 ROI 掩码 \texttt{roi\_mask}；
+    \item 在颜色掩码 \texttt{mask} 上执行 \texttt{mask = mask \& roi\_mask}，将检测范围限制在 ROI 内。
+\end{enumerate}
+
+ROI 可由 \texttt{scripts/0\_color\_calibration.py} 的 ROI 框选模式写入 \texttt{config/colors.json}；若未设置，则默认全帧检测。
+
+\subsection{椭圆拟合定位与质量检验}
+
+\subsubsection{椭圆拟合}
+
+对提取的轮廓，使用 \texttt{cv2.fitEllipse()} 进行最小二乘椭圆拟合。该函数返回椭圆中心 $(c_x, c_y)$、长短轴 $(w, h)$ 和旋转角度。
+
+拟合要求轮廓至少有 \textbf{5 个点}。
+
+\subsubsection{质量检验}
+
+为过滤由噪声产生的伪椭圆，引入两个关键指标：
+
+\textbf{1. 圆度（Circularity）}
+\begin{equation}
+C = \frac{4\pi \cdot A}{P^2}
+\end{equation}
+其中 $A$ 为轮廓面积，$P$ 为轮廓周长。理想圆的圆度为 1，椭圆约为 0.7-0.9，不规则碎片远小于 0.3。
+\textbf{阈值}：$C > 0.3$
+
+\textbf{2. 面积匹配度（Area Ratio）}
+\begin{equation}
+R_A = \frac{A_{\text{contour}}}{A_{\text{ellipse}}} = \frac{A_{\text{contour}}}{\pi \cdot \frac{w}{2} \cdot \frac{h}{2}}
+\end{equation}
+若轮廓是完整的椭圆，则 $R_A \approx 1$；若轮廓是碎片，则 $R_A < 0.5$；若轮廓是多个连通区域的合并，则 $R_A > 2$。
+\textbf{阈值}：$0.5 < R_A < 2.0$
+
+\subsubsection{非极大值抑制（NMS）}
+
+当同一标记点因为形态学处理或轮廓碎裂产生多个相邻候选时，直接取所有候选会导致同一颜色在同一帧出现“重复检测”。本项目采用基于中心距离的非极大值抑制（NMS）：
+\begin{enumerate}
+    \item 对候选椭圆按轮廓面积降序排序；
+    \item 依次保留面积最大的候选；
+    \item 移除与已保留候选中心距离小于 \texttt{NMS\_DISTANCE=30 px} 的其他候选。
+\end{enumerate}
+
+\subsection{轨迹过滤与运动幅度筛选}
+
+\subsubsection{时空连续性过滤}
+
+单帧检测很容易受到背景误检、遮挡与运动模糊影响。为得到稳定轨迹，本项目在 \texttt{scripts/utils.py} 中对每个颜色轨迹执行时空连续性过滤（\texttt{filter\_trajectory}）：
+\begin{itemize}
+    \item \textbf{时间连续性}：相邻点帧间隔 $\le$ \texttt{max\_frame\_gap = 3}（允许短暂漏检/遮挡）；
+    \item \textbf{空间连续性}：相邻点的欧氏距离 $\le$ \texttt{max\_spatial\_jump = 50 px}；
+    \item \textbf{最短连续段}：连续段长度 $\ge$ \texttt{min\_segment\_length = 5}。
+\end{itemize}
+
+实现上会把检测序列划分为多个“连续段”，并保留所有满足条件的段（而不是只取最长段），以便后续按实验需要选择或拼接。
+
+\subsubsection{运动幅度筛选}
+
+在背景存在静态彩色物体时，仅靠时空连续性仍可能保留“静止干扰”。因此在 \texttt{scripts/2\_detect\_and\_track.py}（以及 \texttt{scripts/3\_visualize\_3d.py}）中引入运动幅度筛选：
+\begin{enumerate}
+    \item 对每条过滤后轨迹计算位置标准差（\texttt{std(u), std(v)} 的均值）；
+    \item 仅保留运动幅度大于 \texttt{motion\_threshold=5.0 px} 且点数不少于 \texttt{min\_points=50} 的轨迹。
+\end{enumerate}
+
+该机制的直观含义是：真实标记点在抛掷/旋转中具有明显位移，而背景干扰往往近似静止。
+
+\subsection{数据后处理与拟合（像素域）}
+
+\begin{quote}
+本仓库的基础输出是“像素域轨迹”：每个颜色标记点在每帧的 (u, v) 像素坐标。对于 12.16 三机位数据，本文进一步引入多视图三角测量与刚体约束重建 $\mathcal{R}(t)$ 与 $\vec\omega(t)$（见 3.8），并用于物理一致性检验与理论对比（见第 4 章）。
+\end{quote}
+
+\subsubsection{CSV 数据格式与导出}
+
+轨迹过滤完成后，使用 \texttt{scripts/4\_export\_csv.py} 导出 CSV，表头固定为 \texttt{frame\_idx,color\_id,u,v}，其中：
+\begin{itemize}
+    \item \texttt{frame\_idx}：帧序号（从 1 开始）
+    \item \texttt{color\_id}：颜色 ID（与 \texttt{config/colors.json} 一致）
+    \item \texttt{u,v}：像素坐标（OpenCV 图像坐标系，u 向右、v 向下）
+\end{itemize}
+
+\subsubsection{轨迹中心与覆盖率}
+
+对于多标记点刚体，常用的一个“整体位移”描述是标记点中心（质心）轨迹。本文在后处理脚本 \texttt{scripts/6\_postprocess\_trajectory.py} 中按帧对所有可见标记取均值：
+\begin{equation}
+u_c(t)=\frac{1}{N_t}\sum_{k=1}^{N_t}u_k(t), \quad v_c(t)=\frac{1}{N_t}\sum_{k=1}^{N_t}v_k(t)
+\end{equation}
+其中 $N_t$ 为该帧成功检测到的标记点数。
+
+为评估跟踪完整性，可定义每条轨迹的“覆盖率”：
+\begin{equation}
+\text{coverage}=\frac{\#\{\text{unique frames}\}}{\text{total frames}}
+\end{equation}
+该指标对遮挡/漏检敏感，可直接由 CSV 统计得到。
+
+\subsubsection{平滑与抛体拟合}
+
+由于检测噪声与偶发跳点，中心轨迹可先做简单平滑（本文采用长度为 $w$ 的滑动平均）。在近似认为 $v$ 轴对应竖直方向、且透视变化不剧烈时，抛体运动满足：
+\begin{equation}
+v(t)=\frac{1}{2}g_{px}t^2+v_0 t+v_1
+\end{equation}
+用二次多项式拟合得到 $g_{px}=2a$（单位 px/s$^2$，图像坐标系中向下为正）。将 $g_{px}$ 转为物理单位需额外的像素尺度 $s$（m/px）与相机几何关系；否则拟合主要用于检验轨迹的"整体一致性"与数据质量。
+
+\subsubsection{滤波处理与噪声抑制}
+
+在视觉测量系统中，由于检测噪声、椭圆拟合误差以及量化噪声的存在，直接对像素坐标进行差分运算（如计算速度或角速度）会显著放大高频噪声。本文按“像素域轨迹”和“姿态/角速度”两条链路分别处理：
+
+\textbf{1. 像素域：滑动平均滤波（Moving Average Filter）}
+
+对于轨迹中心的平滑处理，采用长度为 $w$ 的滑动平均：
+\begin{equation}
+\bar{x}[n] = \frac{1}{w} \sum_{k=0}^{w-1} x[n-k]
+\end{equation}
+该滤波器实现简单、计算高效，适用于去除检测过程中的随机跳点。本系统在 \texttt{scripts/6\_postprocess\_trajectory.py} 中默认使用 $w=11$。
+
+\textbf{2. 姿态/角速度：旋转几何一致的平滑（12.16）}
+
+对 12.16 的多相机姿态序列，采用更贴合旋转几何的处理方式（配套重建脚本 \texttt{reconstruct\_optimizer.py} 的实现逻辑）：
+\begin{itemize}
+    \item \textbf{四元数连续化}：利用 $\vec q$ 与 $-\vec q$ 表示同一旋转的性质，若相邻帧满足 $\vec q_{j+1}\cdot\vec q_j<0$ 则取 $\vec q_{j+1}\leftarrow-\vec q_{j+1}$，避免“符号翻转”造成的跳变；
+    \item \textbf{缺失姿态插值}：对缺失帧使用 SLERP 在旋转群上插值（平移用线性插值），得到更连续的 $\mathcal{R}(t)$；
+    \item \textbf{角速度计算}：先求相对旋转 $\Delta\mathcal{R}_j=\mathcal{R}(t_{j+1})\mathcal{R}^T(t_j)$，再将其旋转向量 $\vec\phi_j=\log(\Delta\mathcal{R}_j)$ 近似为 $\vec\omega_{world}(t_j)\approx \vec\phi_j/\Delta t$；最后用 $\vec\omega_{body}(t_j)=\mathcal{R}^T(t_j)\vec\omega_{world}(t_j)$ 转到体坐标系。
+\end{itemize}
+
+\textbf{3. 角速度的中值 + 高斯滤波（12.16）}
+
+角速度由差分得到，易出现孤立尖峰（aliasing/漏检导致的突变）。因此在得到离散角速度后，采用中值滤波去尖峰：
+\begin{equation}
+\tilde{x}[n] = \text{median}\{x[n-k], \ldots, x[n], \ldots, x[n+k]\}
+\end{equation}
+中值滤波器对脉冲噪声具有极强的抑制能力，同时保持信号的阶跃边缘。在 \texttt{calculate\_angular\_velocity} 中使用窗口大小为 5 的中值滤波作为预处理，并对角速度模长设置上限 \texttt{MAX\_OMEGA=10 rad/s} 以抑制明显异常值。
+
+在去除尖峰后，再使用一维高斯滤波器进行平滑：
+\begin{equation}
+g(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{x^2}{2\sigma^2}}
+\end{equation}
+本系统采用 $\sigma = 2.0$ 的高斯核进行最终平滑，在保持信号整体趋势的同时有效抑制高频抖动；在“仅用于绘图对比”的脚本中也可用更强的平滑参数（如更大的中值窗口与高斯 $\sigma$）。
+
+\textbf{4. 异常帧检测与剔除（12.16）}
+
+在姿态重建过程中，检测并剔除突变的异常帧：
+\begin{itemize}
+    \item \textbf{角度跳变阈值}：相邻帧旋转变化 $> 0.5$ rad（约 30°）视为异常
+    \item \textbf{位置跳变阈值}：相邻帧位移 $> 0.1$ m（10 cm）视为异常
+\end{itemize}
+当某帧的前后变化率同时超过阈值时，该帧被标记为异常并剔除，后续通过插值填补。
+
+以上处理的目的，是在不改变主导物理趋势的前提下，尽量抑制“检测噪声 $\to$ 姿态噪声 $\to$ 差分放大”的误差链路。
+
+\subsubsection{论文图生成}
+
+运行后处理脚本即可生成本文使用的轨迹图与拟合图（默认输出到 \texttt{docs/images/}）：
+\begin{itemize}
+    \item \texttt{trajectory\_uv\_vs\_time.png}：u(t)、v(t) 时间序列
+    \item \texttt{trajectory\_uv\_path.png}：u-v 平面投影
+    \item \texttt{trajectory\_gravity\_fit.png}：v(t) 二次拟合与残差
+\end{itemize}
+此外，\texttt{scripts/3\_visualize\_3d.py} 将 (frame, u, v) 绘制为三维时空曲线（Frame-u-v），用于直观检查轨迹的连续性与遮挡段。
+
+\subsection{多相机 3D 与姿态重建（12.16）}
+
+\begin{quote}
+本节参考 \texttt{references/由视频重建旋转矩阵.md} 与 \texttt{references/实验设计.md} 的“多相机 + 标记点姿态重建”流程。本仓库在 \texttt{output/trajectories/12.16} 提供了该流程的关键表格与可视化结果，便于在论文中复现图表与对比结论。
+\end{quote}
+
+\subsubsection{数据文件与字段（12.16）}
+
+\begin{itemize}
+    \item \texttt{output/trajectories/12.16/3d\_trajectories.csv}：每帧 3D 点（含缺失值），字段为 \texttt{frame\_idx,color\_id,x,y,z,cameras}；其中 \texttt{cameras} 记录参与三角测量的机位组合。
+    \item \texttt{output/trajectories/12.16/poses\_opt.csv}：姿态与角速度序列，字段为 \texttt{frame,tx,ty,tz,qx,qy,qz,qw,wx,wy,wz,Ek}；\texttt{Ek} 为转动动能（J）。
+\end{itemize}
+
+\subsubsection{多视图三角测量（2D$\to$3D）}
+
+对每台相机 $i$，标定得到投影矩阵 $P_i=K_i[R_i|t_i]$。在同一时刻 $t_j$，若在多机位检测到同一标记点 $k$ 的像素坐标 $(u_{k,i},v_{k,i})$，即可通过多视图三角测量恢复其在实验室坐标系（Lab）下的 3D 坐标 $\vec p_{k,lab}(t_j)$。
+
+在实际实验中，遮挡/漏检会导致部分帧只有 0–2 个完整 3D 点（见 4.2）。因此三角测量结果通常需要与“时序窗口统计”“刚体约束”结合使用。
+
+\subsubsection{刚体配准：由模板点求旋转矩阵 $\mathcal{R}(t)$}
+
+设在 Body 系下的模板点集为 $\{\vec p_{k,body}\}$，在 Lab 系下的观测点为 $\{\vec p_{k,lab}(t_j)\}$。刚体运动满足：
+\begin{equation}
+\vec p_{k,lab}(t_j)\approx \mathcal{R}(t_j)\vec p_{k,body}+\vec T(t_j)
+\end{equation}
+
+可用 Kabsch（SVD）算法求解每一帧的最优旋转矩阵 $\mathcal{R}(t_j)\in SO(3)$ 与平移 $\vec T(t_j)$：
+\begin{enumerate}
+    \item 计算两组点质心 $\vec c_{body},\vec c_{lab}$ 并去中心化；
+    \item 构造协方差矩阵 $H=\sum_k \vec q_{k,body}\vec q_{k,lab}^T$；
+    \item SVD：$H=U\Sigma V^T$，并取 $\mathcal{R}=VU^T$（若 $\det(\mathcal{R})<0$ 则修正 $V$）；
+    \item $\vec T=\vec c_{lab}-\mathcal{R}\vec c_{body}$。
+\end{enumerate}
+
+当可见点数不足或噪声较大时，可进一步采用“最小二乘优化 + 时序平滑”的方式，在一个时间窗内联合求解姿态（见 4.4 的姿态结果示例）。
+
+\textbf{实现补充（12.16：窗口优化器）}
+
+12.16 的 \texttt{3d\_trajectories.csv} 中，多数帧只有 0–2 个完整 3D 点，直接逐帧使用 Kabsch（通常需要 $\ge$3 个点）会导致姿态序列极不连续。为此，配套实现采用“时间窗统计 + 鲁棒最小二乘”的姿态求解方式（\texttt{reconstruct\_optimizer.py}）：
+
+\begin{enumerate}
+    \item \textbf{时间窗聚合}：对目标帧 $t_j$ 取窗口 $[t_{j-20},t_{j+20}]$，对每个 \texttt{color\_id} 在窗口内的有效 3D 点取\textbf{中位数}作为该颜色的代表观测点，减少漏检与离群点的影响；
+    \item \textbf{鲁棒最小二乘}：以旋转向量 $\vec r$ 与平移 $\vec T$ 为变量，最小化
+    \begin{equation}
+    \min_{\vec r,\vec T}\sum_{k\in\Omega_j}\rho\left(\left\|\mathcal{R}(\vec r)\vec p_{k,body}+\vec T-\vec p_{k,lab}\right\|_2\right),
+    \end{equation}
+    其中 $\rho(\cdot)$ 取 \texttt{soft\_l1}（\texttt{scipy.optimize.least\_squares}），并沿用上一帧解作为初值（提高收敛与连续性）；
+    \item \textbf{异常剔除与插值}：对旋转跳变（0.5 rad）与平移跳变（0.1 m）进行阈值剔除，缺失段用 SLERP/线性插值补齐；
+    \item \textbf{尺度修正}：对深度方向的系统性尺度偏差引入经验修正因子（如 \texttt{Z\_SCALE=0.5}），并通过重力拟合/轨迹形态做交叉检查（见 4.5）。
+\end{enumerate}
+
+该策略的关键思想是：用“刚体约束 + 时间冗余”弥补“单帧点云不完整”的不足，从而得到可用于动力学分析的连续姿态序列。
+
+\subsubsection{角速度估计（$\mathcal{R}(t)\rightarrow \vec\omega_{body}(t)$）}
+
+离散序列上，常用相邻两帧增量旋转：
+\begin{equation}
+\Delta\mathcal{R}_j=\mathcal{R}^T(t_j)\mathcal{R}(t_{j+1})
+\end{equation}
+再通过对数映射或小角度近似，将 $\Delta\mathcal{R}_j$ 转换为角速度 $\vec\omega_{body}(t_j)$。为了降低差分放大噪声的影响，实践中常对旋转矩阵（或等价的四元数序列）先做平滑，再计算角速度。
+
+\subsubsection{由多相机视频重建旋转矩阵 $\mathcal{R}(t)$ 的完整流程}
+
+\begin{quote}
+本节对"多相机 + 标记点的姿态与角速度重建"的关键计算步骤做更"算法化"的整理，方便理解与实现。
+\end{quote}
+
+\paragraph{3.8.5.1 前期准备}
+
+\begin{enumerate}
+    \item \textbf{Body 系模板点集 $\{\vec p_{k,body}\}$}
+    \begin{itemize}
+        \item 在刚体表面布置 $N\ge 4$ 个不共面的标记点（颜色/形状容易识别）。
+        \item 在 Body Frame 中，给每个标记点定义固定坐标 $\vec p_{k,body}\in\mathbb{R}^3$。这一组点构成"刚体模板"。
+    \end{itemize}
+    \item \textbf{相机标定}
+    \begin{itemize}
+        \item 对每台相机做内参 + 外参标定，得到投影矩阵
+        \begin{equation}
+        P_i = K_i [R_i\,|\,t_i], \quad i = 1,2,\dots,M,
+        \end{equation}
+        其中 $M$ 是相机数目。
+        \item 标定结果用于后续"多视图 2D$\to$3D 三角测量"。
+    \end{itemize}
+    \item \textbf{时间同步}
+    \begin{itemize}
+        \item 保证各相机视频在时间轴上的同步（硬件触发或后期对齐），使得同一帧序号 $t_j$ 对应同一物理时刻 $t_j$。
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{3.8.5.2 每一帧从 2D 像素到 Lab 系 3D 点}
+
+对每一个时间步 $t_j$：
+\begin{enumerate}
+    \item \textbf{检测 2D 像素坐标}
+    \begin{itemize}
+        \item 在每台相机的图像上，检测所有标记点的 2D 像素坐标 $\vec u_{k,i}(t_j)$。
+        \item 要求能在绝大部分相机上匹配到同一个物理标记点的像素位置（可手工/自动跟踪）。
+    \end{itemize}
+    \item \textbf{多视图三角测量}
+    \begin{itemize}
+        \item 利用各相机的投影矩阵 $P_i$ 和对应的像素坐标 $\vec u_{k,i}(t_j)$，对每个标记点 $k$ 做三角测量，恢复其在 Lab Frame 下的 3D 坐标：
+        \begin{equation}
+        \vec p_{k,lab}(t_j) \in \mathbb{R}^3.
+        \end{equation}
+        \item 这样，在时刻 $t_j$ 得到一组点对应：
+        \begin{equation}
+        \big\{\vec p_{k,body}\big\} \longleftrightarrow \big\{\vec p_{k,lab}(t_j)\big\}.
+        \end{equation}
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{3.8.5.3 刚体配准：Kabsch 算法详解}
+
+假设刚体是严格刚性的，Body 系到 Lab 系的几何关系在每个时刻 $t_j$ 可以写成
+\begin{equation}
+\vec p_{k,lab}(t_j) \approx \mathcal{R}(t_j)\,\vec p_{k,body} + \vec T(t_j),
+\end{equation}
+其中 $\mathcal{R}(t_j)\in SO(3)$ 是旋转矩阵，$\vec T(t_j)$ 是平移向量。为求出 $\mathcal{R}(t_j)$，可采用 Kabsch 算法（刚体配准）：
+
+\begin{enumerate}
+    \item \textbf{计算两组点的质心}
+    \begin{equation}
+    \vec c_{body} = \frac{1}{N}\sum_k \vec p_{k,body},\quad
+    \vec c_{lab}(t_j) = \frac{1}{N}\sum_k \vec p_{k,lab}(t_j).
+    \end{equation}
+    \item \textbf{去中心化}
+    \begin{equation}
+    \vec q_{k,body} = \vec p_{k,body} - \vec c_{body},\quad
+    \vec q_{k,lab}(t_j) = \vec p_{k,lab}(t_j) - \vec c_{lab}(t_j).
+    \end{equation}
+    \item \textbf{构造协方差矩阵}
+    \begin{equation}
+    H(t_j) = \sum_k \vec q_{k,body}\,\vec q_{k,lab}(t_j)^T,\quad H\in\mathbb{R}^{3\times 3}.
+    \end{equation}
+    \item \textbf{对 $H$ 做 SVD 分解}
+    \begin{equation}
+    H = U\,\Sigma\,V^T.
+    \end{equation}
+    \item \textbf{求旋转矩阵}
+    \begin{itemize}
+        \item 先令
+        \begin{equation}
+        \mathcal{R}(t_j) = V\,U^T.
+        \end{equation}
+        \item 若发现 $\det(\mathcal{R}) < 0$，按 Kabsch 算法对 $V$ 的最后一列取反，再重算一次，保证 $\det(\mathcal{R}) = +1$。
+    \end{itemize}
+    \item \textbf{求平移向量（如有需要）}
+    \begin{equation}
+    \vec T(t_j) = \vec c_{lab}(t_j) - \mathcal{R}(t_j)\,\vec c_{body}.
+    \end{equation}
+\end{enumerate}
+
+这样，在每个时间步 $t_j$ 上，就得到了旋转矩阵 $\mathcal{R}(t_j)$（Body$\to$Lab 的姿态）。
+
+\paragraph{3.8.5.4 从离散序列 $\mathcal{R}(t_j)$ 到角速度 $\vec\omega_{body}(t_j)$}
+
+这一步对应姿态运动学方程：
+\begin{equation}
+\frac{d\mathcal{R}}{dt} = \mathcal{R}\,[\vec{\omega}_{body}]_\times.
+\end{equation}
+离散实现时，可以采用"相邻两帧增量旋转"的思路：
+
+\begin{enumerate}
+    \item \textbf{计算增量旋转矩阵}
+    \begin{equation}
+    \Delta \mathcal{R}_j = \mathcal{R}^T(t_j)\,\mathcal{R}(t_{j+1}).
+    \end{equation}
+    当采样足够快时，$\Delta \mathcal{R}_j$ 可视为一次"小旋转"。
+    \item \textbf{从小旋转读出角速度}
+    \begin{itemize}
+        \item 对 $\Delta \mathcal{R}_j$ 做对数映射，或在"小角度"近似下
+        \begin{equation}
+        [\vec{\omega}_{body}(t_j)]_\times \approx \frac{\Delta \mathcal{R}_j - I}{\Delta t}.
+        \end{equation}
+        \item 再从反对称矩阵 $[\vec{\omega}_{body}]_\times$ 的三个独立分量中读出 $\vec{\omega}_{body}(t_j)$。
+    \end{itemize}
+    \item \textbf{噪声与平滑}
+    \begin{itemize}
+        \item 实际含噪数据中，直接两帧差分会放大噪声，可对 $\mathcal{R}(t_j)$（或四元数表示）做时间平滑后再求导；或在一个小时间窗内直接拟合出"最佳常矢量" $\vec{\omega}_{body}$。
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{3.8.5.5 小结：从视频到 $\mathcal{R}(t)$ 的流水线}
+
+整体流程可以概括为：
+\begin{enumerate}
+    \item 相机标定 $\to$ 得到所有 $P_i$。
+    \item 为刚体建立 Body 系模板点集 $\{\vec p_{k,body}\}$。
+    \item 对每一帧：
+    \begin{itemize}
+        \item 多相机上检测标记点 2D 像素坐标；
+        \item 做多视图三角测量，恢复 3D 点 $\{\vec p_{k,lab}(t_j)\}$；
+        \item Kabsch 刚体配准，求得 $\mathcal{R}(t_j),\vec T(t_j)$。
+    \end{itemize}
+    \item 得到离散序列 $\mathcal{R}(t_j)$ 后，可以进一步通过增量旋转求角速度 $\vec{\omega}_{body}(t_j)$，并与欧拉方程及耗散模型逐项对比。
+\end{enumerate}
+
+\paragraph{3.8.5.6 流程图示意}
+
+\begin{figure}[htbp]
+\centering
+\begin{itemize}[label=$\downarrow$]
+    \item \textbf{相机标定} (获取每个相机的投影矩阵 $P_i$)
+    \item \textbf{建立 Body 系模板点集} (定义模板点 $p_{body}$)
+    \item \textbf{多相机同步采集视频}
+    \item \textbf{逐帧检测标记点 2D 像素坐标} (每台相机上的像素位置)
+    \item \textbf{多视图三角测量} (恢复 Lab 系 3D 点 $p_{lab}$ 在各时刻)
+    \item \textbf{刚体配准 Kabsch/SVD} (求解 $\mathcal{R}$ 和 $T$ 在各时刻)
+    \item \textbf{得到离散姿态序列} ($\mathcal{R}$ at $t_0, t_1, ..., t_N$)
+    \item \textbf{相邻帧增量旋转} ($\Delta \mathcal{R} = R^T R_{next}$)
+    \item \textbf{由 $\Delta \mathcal{R}$ 近似角速度} (求得 $\omega_{body}$)
+    \item \textbf{将 $\mathcal{R}$ 和 $\omega_{body}$ 与欧拉方程动力学方程和耗散模型逐项对比}
+\end{itemize}
+\caption{从视频到旋转矩阵 $\mathcal{R}(t)$ 的完整流程示意}
+\end{figure}

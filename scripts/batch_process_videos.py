@@ -51,21 +51,30 @@ def process_video(
     # 2. 导出CSV（可选）
     if export_csv:
         print("\n[2/4] Exporting CSV data...")
-        csv_script = Path(script_path).parent / "4_export_csv.py"
+        csv_script = (
+            Path(script_path).parent.parent / "src" / "core" / "4_export_csv.py"
+        )
         cmd = [python_exe, str(csv_script), "--video", str(video_path)]
         subprocess.run(cmd, capture_output=False)
 
     # 3. 生成3D可视化（可选）
     if visualize_3d:
         print("\n[3/4] Generating 3D trajectory plot...")
-        viz_script = Path(script_path).parent / "3_visualize_3d.py"
+        viz_script = (
+            Path(script_path).parent.parent / "src" / "core" / "3_visualize_3d.py"
+        )
         cmd = [python_exe, str(viz_script), "--video", str(video_path)]
         subprocess.run(cmd, capture_output=False)
 
     # 4. 渲染检测视频（可选）
     if render_video:
         print("\n[4/4] Rendering detection video...")
-        render_script = Path(script_path).parent / "5_render_detection_video.py"
+        render_script = (
+            Path(script_path).parent.parent
+            / "src"
+            / "core"
+            / "5_render_detection_video.py"
+        )
         cmd = [
             python_exe,
             str(render_script),
@@ -80,12 +89,16 @@ def process_video(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch process all videos in the videos folder")
-    parser.add_argument(
-        "--video-dir", default="../videos", help="Video folder path (default: ../videos)"
+    parser = argparse.ArgumentParser(
+        description="Batch process all videos in videos folder"
     )
     parser.add_argument(
-        "--python", default=sys.executable, help="Python interpreter path (default: current)"
+        "--video-dir", default="data/raw", help="Video folder path (default: data/raw)"
+    )
+    parser.add_argument(
+        "--python",
+        default=sys.executable,
+        help="Python interpreter path (default: current)",
     )
     parser.add_argument(
         "--export-csv",
@@ -116,7 +129,7 @@ def main():
     # 获取绝对路径
     script_dir = Path(__file__).parent
     video_dir = (script_dir / args.video_dir).resolve()
-    detect_script = script_dir / "2_detect_and_track.py"
+    detect_script = script_dir.parent / "src" / "core" / "2_detect_and_track.py"
 
     if not detect_script.exists():
         print(f"Error: Detection script not found: {detect_script}")
@@ -196,12 +209,14 @@ def main():
             print(f"  - {name}")
 
     print("\nOutput locations:")
-    print("  Trajectory CSV:  output/trajectories/")
-    print("  3D Visualization: output/visualizations/")
-    print("  Detection Video: output/videos/")
+    print("  Trajectory CSV:  data/processed/trajectories/")
+    print("  3D Visualization: data/processed/visualizations/")
+    print("  Detection Video: data/processed/videos/")
     print("\nNotes:")
-    print("  - Run 1_generate_markers.py separately to generate marker dot images")
-    print("  - Marker dot images will be saved in output/markers/")
+    print(
+        "  - Run src/core/1_generate_markers.py separately to generate marker dot images"
+    )
+    print("  - Marker dot images will be saved in data/processed/markers/")
 
 
 if __name__ == "__main__":

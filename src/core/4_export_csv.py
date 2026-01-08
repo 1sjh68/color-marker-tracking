@@ -5,16 +5,26 @@
 import argparse
 import csv
 import os
+import sys
 
 import cv2
-from utils import detect_color_ellipses, filter_trajectory, load_config
+
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import (
+    detect_color_ellipses,
+    filter_trajectory,
+    load_config,
+    get_data_dir,
+)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Export trajectory data to CSV")
     parser.add_argument("--video", required=True, help="Video file path")
     parser.add_argument(
-        "--output", help="Output CSV file path (default: output/trajectories/trajectory_filename.csv)"
+        "--output",
+        help="Output CSV file path (default: output/trajectories/trajectory_filename.csv)",
     )
     parser.add_argument(
         "--color-id", type=int, help="Export specific color ID only (optional)"
@@ -83,7 +93,9 @@ def main():
                 (c["name"] for c in colors if c["id"] == args.color_id),
                 f"Color{args.color_id}",
             )
-            print(f"\nExporting specified trajectory: {color_name} (ID {args.color_id})")
+            print(
+                f"\nExporting specified trajectory: {color_name} (ID {args.color_id})"
+            )
         else:
             print(f"\nError: Color ID {args.color_id} has no valid trajectory")
             return
@@ -106,9 +118,7 @@ def main():
     else:
         # 提取输入视频文件名（不含扩展名）
         video_basename = os.path.splitext(os.path.basename(args.video))[0]
-        output_dir = os.path.join(
-            os.path.dirname(__file__), "..", "output", "trajectories"
-        )
+        output_dir = str(get_data_dir("processed/trajectories"))
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"trajectory_{video_basename}.csv")
 

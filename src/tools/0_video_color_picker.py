@@ -22,15 +22,25 @@
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
-from utils import detect_color_with_wrap, load_config, put_chinese_text
+
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import (
+    detect_color_with_wrap,
+    load_config,
+    put_chinese_text,
+    get_config_path,
+    get_data_dir,
+)
 
 
 def save_config(config):
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "colors.json")
+    config_path = str(get_config_path())
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
     print("✓ Config saved")
@@ -55,7 +65,7 @@ def find_videos(video_dir):
 def select_video_interactive():
     """交互式选择视频"""
     script_dir = Path(__file__).parent
-    video_dir = (script_dir / ".." / "videos").resolve()
+    video_dir = get_data_dir("raw").resolve()
 
     print("=" * 60)
     print("Scanning video directory...")
@@ -225,10 +235,14 @@ class VideoColorPicker:
             s_mid = (lower[1] + upper[1]) // 2
             if s_ex < s_mid:
                 lower[1] = min(255, int(s_ex + 15))
-                print(f"  ↑ Shrink saturation lower bound: {lower[1]} (exclude interference)")
+                print(
+                    f"  ↑ Shrink saturation lower bound: {lower[1]} (exclude interference)"
+                )
             else:
                 upper[1] = max(0, int(s_ex - 15))
-                print(f"  ↓ Shrink saturation upper bound: {upper[1]} (exclude interference)")
+                print(
+                    f"  ↓ Shrink saturation upper bound: {upper[1]} (exclude interference)"
+                )
 
         # 调整明度（次要）
         if v_ex < lower[2]:
@@ -246,7 +260,6 @@ class VideoColorPicker:
             else:
                 upper[0] = max(0, int(h_ex - 5))
                 print(f"  ↓ Shrink hue upper bound: {upper[0]}")
-                
 
         # 确保范围有效性
         if lower[1] > upper[1]:
@@ -260,19 +273,18 @@ class VideoColorPicker:
     def test_detection(self, frame, color_def):
         """测试检测效果（使用椭圆拟合+NMS，支持多范围）"""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
+
         # 支持多HSV范围：优先使用 hsv_ranges，否则回退到 hsv_lower/hsv_upper
         if "hsv_ranges" in color_def and color_def["hsv_ranges"]:
             hsv_ranges = color_def["hsv_ranges"]
         else:
-            hsv_ranges = [{
-                "lower": color_def["hsv_lower"],
-                "upper": color_def["hsv_upper"]
-            }]
+            hsv_ranges = [
+                {"lower": color_def["hsv_lower"], "upper": color_def["hsv_upper"]}
+            ]
 
         # 红色需要特殊处理
         is_red = color_def["id"] == 0
-        
+
         # 对每个HSV范围检测并合并掩码
         combined_mask = None
         for hsv_range in hsv_ranges:
@@ -283,7 +295,7 @@ class VideoColorPicker:
                 combined_mask = range_mask
             else:
                 combined_mask = cv2.bitwise_or(combined_mask, range_mask)
-        
+
         mask = combined_mask
 
         # 增强形态学处理
@@ -339,7 +351,7 @@ class VideoColorPicker:
                 cx, cy = cand[0], cand[1]
                 is_duplicate = False
                 for kept in keep:
-                    dist = np.sqrt((cx - kept[0])**2 + (cy - kept[1])**2)
+                    dist = np.sqrt((cx - kept[0]) ** 2 + (cy - kept[1]) ** 2)
                     if dist < NMS_DISTANCE:
                         is_duplicate = True
                         break
@@ -533,7 +545,9 @@ class VideoColorPicker:
             # 测试当前颜色的检测效果
             if self.current_color_id is not None:
                 color_def = self.colors[self.current_color_id]
-                mask, contours, ellipses = self.test_detection(self.current_frame, color_def)
+                mask, contours, ellipses = self.test_detection(
+                    self.current_frame, color_def
+                )
 
                 # 在原图上绘制检测结果
                 for ellipse_data, contour in ellipses:
@@ -575,10 +589,14 @@ class VideoColorPicker:
                 save_config(self.config)
             elif key == ord("e"):
                 self.exclude_mode = not self.exclude_mode
-                mode_name = "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                mode_name = (
+                    "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                )
                 print(f"\nSwitched to: {mode_name}")
                 if self.exclude_mode:
-                    print("Tip: Click on unwanted areas (e.g. skin) to shrink HSV range")
+                    print(
+                        "Tip: Click on unwanted areas (e.g. skin) to shrink HSV range"
+                    )
                 else:
                     print("Tip: Click on target color area to calibrate")
             elif key == ord(" "):
@@ -602,8 +620,12 @@ class VideoColorPicker:
                 color_id = key - ord("0")
                 if color_id < len(self.colors):
                     self.current_color_id = color_id
-                    mode_name = "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
-                    print(f"\nSelected color: {self.colors[color_id]['name']} [{mode_name}]")
+                    mode_name = (
+                        "Exclusion Mode" if self.exclude_mode else "Calibration Mode"
+                    )
+                    print(
+                        f"\nSelected color: {self.colors[color_id]['name']} [{mode_name}]"
+                    )
                     if self.exclude_mode:
                         print("Please click on interference area to exclude")
                     else:

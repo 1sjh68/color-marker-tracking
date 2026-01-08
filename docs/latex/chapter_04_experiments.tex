@@ -1,0 +1,158 @@
+% !TEX root = optics_term_paper.tex
+
+% ==================== 4 实验设计与结果 ====================
+\section{实验设计与结果}
+
+\subsection{实验条件}
+
+本节使用最新实验数据 \texttt{output/trajectories/12.16}（三机位 + 标记点姿态重建的后处理结果）进行展示。关键参数与表格来自 \texttt{comparison\_report.txt}：
+
+\begin{table}[htbp]
+\centering
+\caption{12.16 实验关键参数汇总}
+\begin{tabular}{ll}
+\toprule
+参数 & 值 \\
+\midrule
+相机数量 & 3（同步拍摄） \\
+姿态数据长度 & 485 帧（约 0.87 s） \\
+刚体尺寸 & (0.07, 0.19, 0.02) m \\
+质量 & 0.1 kg \\
+主惯量 ($kg\cdot m^2$) & $I_1=3.04\times10^{-4}, I_2=4.42\times10^{-5}, I_3=3.42\times10^{-4}$ \\
+数据表 & \texttt{3d\_trajectories.csv}, \texttt{poses\_opt.csv} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+下图展示了三视角同步拍摄的实验场景设置，通过 1.00 m 的参考距离标注用于多相机尺度标定：
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{multi_camera_calibration_scene.png}
+\caption{多相机尺度标定场景（三视角下的标记点测量设置与距离参考）}
+\end{figure}
+
+为直观展示成像条件，下图给出 12.16 视频的若干原始帧示例，可见光照不均、运动模糊与自遮挡等因素共同构成检测难点：
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{experiment_frame_000.png}
+    \caption{帧 000}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{experiment_frame_120.png}
+    \caption{帧 120}
+\end{subfigure}
+\\ \vspace{1em}
+\begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{experiment_frame_240.png}
+    \caption{帧 240}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{experiment_frame_360.png}
+    \caption{帧 360}
+\end{subfigure}
+\caption{12.16 实验原始帧示例（成像条件与遮挡/模糊挑战）}
+\end{figure}
+
+此外，为便于论文写作与结果复现，本仓库提供 \texttt{scripts/7\_prepare\_paper\_assets\_12\_16.py}：可将 \texttt{output/trajectories/12.16} 下的关键图表复制到 \texttt{docs/images/}，并解析 \texttt{comparison\_report.txt} 与 \texttt{diagnostic\_report.txt} 输出摘要（该脚本不会重新运行三角测量/优化）。
+
+\subsection{重建可视化与 3D 点质量}
+
+姿态重建结果视频为 \texttt{output/trajectories/12.16/reconstruction\_dynamic.mp4}，可用于直观观察抛掷过程中的旋转与标记点可见性变化。
+
+为评估三角测量得到的 3D 点质量，\texttt{diagnostic\_report.txt} 给出“每帧完整 3D 点数”的统计（完整指 x/y/z 均非空）：
+
+\begin{table}[htbp]
+\centering
+\caption{每帧有效 3D 标记点数统计（完整帧共 485 帧）}
+\begin{tabular}{lll}
+\toprule
+每帧完整 3D 点数 & 帧数 & 占比 \\
+\midrule
+0 & 277 & 57.1\% \\
+1 & 51 & 10.5\% \\
+2 & 157 & 32.4\% \\
+3 & 0 & 0.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+该结果说明：由于遮挡、视角与检测稳定性限制，原始三角测量点云在多数帧是不完整的，因此需要利用刚体约束与时间窗统计/优化进行姿态序列重建。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{calibration_candidates.png}
+\caption{标定/重建候选帧示意图（用于挑选稳定可见的标记点帧段）}
+\end{figure}
+
+\subsection{刚体轨迹与 3D 重建结果}
+
+以 Lab 系中的位移 $(t_x,t_y,t_z)$ 与标记点 3D 点云为基础，可得到刚体在空间中的运动轨迹与姿态可视化结果：
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{trajectory_3d_reconstruction.png}
+\caption{刚体运动轨迹重建（数据驱动 + 物理约束示例结果）}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{reconstructed_3d_plot.png}
+\caption{刚体运动轨迹重建 3D 图（用于观察整体平移轨迹与姿态变化）}
+\end{figure}
+
+\subsection{姿态与角速度序列}
+
+根据 3.8 的姿态重建流程，可以得到 $\mathcal{R}(t)$（或等价的四元数）与角速度 $\vec\omega_{body}(t)$。下图展示四元数姿态演化：
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{quaternion_evolution.png}
+\caption{姿态四元数分量随时间变化（用于展示姿态连续性与翻转过程）}
+\end{figure}
+
+角速度与转动动能的时间序列（由 \texttt{poses\_opt.csv} 计算）如下图所示：
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{angular_velocity.png}
+\caption{体坐标系角速度三分量与转动动能（重建结果示例）}
+\end{figure}
+
+\subsection{物理一致性检查：能量、角动量与重力}
+
+姿态/角速度重建完成后，可对守恒量与外场效应进行一致性检查：
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{angular_momentum_conservation.png}
+\caption{角动量守恒性检查（用于检验姿态与角速度的一致性）}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{gravity_analysis.png}
+\caption{重力方向上的位移拟合示例（用于检查时间标定与尺度的一致性）}
+\end{figure}
+
+\subsection{理论对比：相空间与翻转特征}
+
+基于 \texttt{comparison\_report.txt} 的拟合参数（初始角速度与阻尼系数），可将实验 $\vec\omega(t)$ 与欧拉方程数值积分结果进行对比。对比指标示例：
+
+\begin{itemize}
+    \item 角速度平均绝对误差（MAE）：$2.2802$ rad/s
+    \item 拟合初始角速度：$[0.288, 17.587, 0.159]$ rad/s
+    \item 拟合阻尼系数：$[3.91\times10^{-5}, 1.31\times10^{-8}, 1.31\times10^{-5}]$
+\end{itemize}
+
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{phase_space_comparison.png}
+\caption{相空间轨迹对比（基准模拟 vs 实验）}
+\end{figure}

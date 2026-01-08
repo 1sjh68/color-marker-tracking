@@ -5,11 +5,20 @@
 import argparse
 import os
 import platform
+import sys
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from utils import detect_color_ellipses, filter_trajectory, load_config
+
+# 添加 src 目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.core.utils import (
+    detect_color_ellipses,
+    filter_trajectory,
+    load_config,
+    get_data_dir,
+)
 
 
 # 配置中文字体以避免警告
@@ -153,9 +162,7 @@ def main():
     # 保存图片
     # 提取输入视频文件名（不含扩展名）
     video_basename = os.path.splitext(os.path.basename(args.video))[0]
-    output_dir = os.path.join(
-        os.path.dirname(__file__), "..", "output", "visualizations"
-    )
+    output_dir = str(get_data_dir("processed/visualizations"))
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"trajectory_3d_{video_basename}.png")
     plt.savefig(output_path, dpi=150, bbox_inches="tight")

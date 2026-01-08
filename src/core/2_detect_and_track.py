@@ -106,7 +106,7 @@ def main():
             cname = next((c["name"] for c in colors if c["id"] == cid), f"Color{cid}")
             coverage = len(filtered_trajectories[cid]) / total_frames * 100
             print(
-                f"  ✅ Kept: {cname} (ID {cid}), points: {len(filtered_trajectories[cid])}, motion amplitude: {motion_amplitudes[cid]:.1f}, coverage: {coverage:.1f}%"
+                f"  [OK] Kept: {cname} (ID {cid}), points: {len(filtered_trajectories[cid])}, motion amplitude: {motion_amplitudes[cid]:.1f}, coverage: {coverage:.1f}%"
             )
 
         for cid in temp_trajectories:
@@ -120,7 +120,7 @@ def main():
                     reason = f"low motion amplitude ({motion_amplitudes[cid]:.1f})"
                 elif points < min_points:
                     reason = f"poor continuity ({points} points < {min_points})"
-                print(f"  ❌ Filtered: {cname} (ID {cid}), {reason}")
+                print(f"  [FILTERED] {cname} (ID {cid}), {reason}")
     else:
         filtered_trajectories = {}
 

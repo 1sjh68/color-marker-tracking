@@ -1,12 +1,18 @@
 # 排除文档目录
-docs/
-optics_term_paper.md
+# docs/  # 已移除此项，docs 目录需要纳入版本控制
+# optics_term_paper.md  # 已移除此项，主文件现在在 reports/ 目录
 
-# 排除输出目录
-output/
+# 排除输出目录（新结构）
+data/processed/
+data/raw/
+
+# 排除报告目录
+reports/
+
+# 排除资源文件
+assets/
 
 # 排除视频文件
-videos/
 *.mp4
 *.avi
 *.mov

@@ -5,10 +5,34 @@
 import json
 import os
 import platform
+from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+
+def get_project_root():
+    """获取项目根目录（包含config文件夹的目录）"""
+    current_dir = Path(__file__).resolve()
+    # 从 src/core/ 向上找到根目录
+    root = current_dir.parent.parent.parent  # src/core/ -> src/ -> 根目录
+    return root
+
+
+def get_config_path():
+    """获取配置文件路径"""
+    return get_project_root() / "config" / "colors.json"
+
+
+def get_data_dir(subpath=""):
+    """获取数据目录路径
+    Args:
+        subpath: 子路径，如 "raw", "processed/markers"
+    Returns:
+        Path 对象
+    """
+    return get_project_root() / "data" / subpath
 
 
 def load_config():
@@ -22,7 +46,7 @@ def load_config():
         json.JSONDecodeError: JSON格式错误
         ValueError: 配置格式不正确
     """
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "colors.json")
+    config_path = get_config_path()
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -218,7 +242,9 @@ def filter_trajectory(
     return all_points
 
 
-def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_params=False, roi=None):
+def detect_color_ellipses(
+    frame, colors, prev_positions=None, return_ellipse_params=False, roi=None
+):
     """检测彩色椭圆区域（真正的椭圆拟合 + 圆度过滤）
 
     圆形标记在运动中会因透视变换呈现为椭圆，使用 cv2.fitEllipse 进行拟合：
@@ -239,7 +265,7 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
     """
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     detected = []
-    
+
     # ROI掩码（如果指定了ROI，只在该区域内检测）
     h, w = frame.shape[:2]
     roi_mask = None
@@ -255,10 +281,10 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
     MAX_ASPECT_RATIO = 15.0  # 最大长宽比（放宽以检测侧面视角的扁椭圆）
     MIN_AREA = 100  # 最小面积
     NMS_DISTANCE = 30  # NMS 最小中心距离（像素）
-    
+
     # 椭圆质量检验参数
     MIN_CIRCULARITY = 0.3  # 最小圆度（4π×面积/周长²，椭圆≈0.7-1.0）
-    MIN_AREA_RATIO = 0.5   # 轮廓面积与椭圆面积的最小比值
+    MIN_AREA_RATIO = 0.5  # 轮廓面积与椭圆面积的最小比值
 
     def nms_candidates(candidates, min_dist=NMS_DISTANCE):
         """非极大值抑制：根据中心点距离去除重复检测"""
@@ -271,7 +297,7 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
             cx, cy = cand[0], cand[1]
             is_duplicate = False
             for kept in keep:
-                dist = np.sqrt((cx - kept[0])**2 + (cy - kept[1])**2)
+                dist = np.sqrt((cx - kept[0]) ** 2 + (cy - kept[1]) ** 2)
                 if dist < min_dist:
                     is_duplicate = True
                     break
@@ -281,20 +307,19 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
 
     for color_def in colors:
         color_id = color_def["id"]
-        
+
         # 支持多HSV范围：优先使用 hsv_ranges，否则回退到 hsv_lower/hsv_upper
         if "hsv_ranges" in color_def and color_def["hsv_ranges"]:
             hsv_ranges = color_def["hsv_ranges"]
         else:
             # 向后兼容：将单个范围转为列表格式
-            hsv_ranges = [{
-                "lower": color_def["hsv_lower"],
-                "upper": color_def["hsv_upper"]
-            }]
+            hsv_ranges = [
+                {"lower": color_def["hsv_lower"], "upper": color_def["hsv_upper"]}
+            ]
 
         # 红色需要特殊处理（ID=0）
         is_red = color_id == 0
-        
+
         # 对每个HSV范围检测并合并掩码
         combined_mask = None
         for hsv_range in hsv_ranges:
@@ -305,9 +330,9 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
                 combined_mask = range_mask
             else:
                 combined_mask = cv2.bitwise_or(combined_mask, range_mask)
-        
+
         mask = combined_mask
-        
+
         # 应用排除区域（从并集中挖掉）
         if "hsv_excludes" in color_def and color_def["hsv_excludes"]:
             for exclude_range in color_def["hsv_excludes"]:
@@ -323,7 +348,7 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_large, iterations=2)
         # 开操作：去除小噪点
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_small, iterations=1)
-        
+
         # 应用ROI掩码（如果指定）
         if roi_mask is not None:
             mask = cv2.bitwise_and(mask, roi_mask)
@@ -363,16 +388,16 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
                 # 过滤极端拉伸的形状（可能是噪声或边缘）
                 if aspect_ratio > MAX_ASPECT_RATIO:
                     continue
-                
+
                 # === 椭圆质量检验 ===
-                
+
                 # 1. 圆度检验：4π×面积/周长²
                 perimeter = cv2.arcLength(contour, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
                     if circularity < MIN_CIRCULARITY:
                         continue  # 不够圆/椭圆形，跳过
-                
+
                 # 2. 面积匹配度检验：轮廓面积 vs 拟合椭圆面积
                 ellipse_area = np.pi * (width / 2) * (height / 2)
                 if ellipse_area > 0:
@@ -412,14 +437,16 @@ def detect_color_ellipses(frame, colors, prev_positions=None, return_ellipse_par
 
             if return_ellipse_params:
                 # 返回完整椭圆参数：(color_id, cx, cy, width, height, angle)
-                detected.append((
-                    color_id,
-                    best_candidate[0],
-                    best_candidate[1],
-                    best_candidate[3],
-                    best_candidate[4],
-                    best_candidate[5]
-                ))
+                detected.append(
+                    (
+                        color_id,
+                        best_candidate[0],
+                        best_candidate[1],
+                        best_candidate[3],
+                        best_candidate[4],
+                        best_candidate[5],
+                    )
+                )
             else:
                 # 兼容旧接口：只返回 (color_id, cx, cy)
                 detected.append((color_id, best_candidate[0], best_candidate[1]))

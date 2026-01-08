@@ -1,0 +1,163 @@
+% !TEX root = optics_term_paper.tex
+
+% ==================== 2 光学基础 ====================
+\section{光学基础与成像误差分析}
+
+\begin{quote}
+本章目标：把系统性能"往回追"到光学与成像链路，解释\textbf{为什么同一套算法在不同光照/曝光/镜头条件下表现差异巨大}。
+\end{quote}
+
+\subsection{成像几何：针孔模型、像素坐标与尺度}
+
+\subsubsection{针孔相机模型}
+
+相机的成像过程可由\textbf{针孔相机模型（Pinhole Camera Model）}近似描述。设空间中一点 $P$ 的三维坐标为 $(X, Y, Z)$（相机坐标系），其在图像平面上的投影点 $(u, v)$ 满足透视投影关系：
+\begin{equation}
+u = f_x \frac{X}{Z} + c_x, \quad v = f_y \frac{Y}{Z} + c_y
+\end{equation}
+其中：
+\begin{itemize}
+    \item $f_x, f_y$ 为以像素为单位的焦距；
+    \item $(c_x, c_y)$ 为图像主点坐标（通常接近图像中心）。
+\end{itemize}
+
+用齐次坐标表示为：
+\begin{equation}
+s \begin{pmatrix} u \\ v \\ 1 \end{pmatrix} = \mathbf{K} \begin{pmatrix} X \\ Y \\ Z \end{pmatrix}, \quad \mathbf{K} = \begin{pmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{pmatrix}
+\end{equation}
+矩阵 $\mathbf{K}$ 称为\textbf{相机内参矩阵}。
+
+\subsubsection{透视投影的几何效应}
+
+由透视投影的非线性特性，空间中的\textbf{圆形标记}在图像平面上通常呈现为\textbf{椭圆}。只有当标记平面与成像平面完全平行时，投影才保持为圆。这一几何事实决定了本系统必须采用椭圆拟合而非圆检测。
+
+设标记点直径为 $D$，距相机距离为 $Z$，则其在图像上的直径约为：
+\begin{equation}
+d_{\text{px}} \approx \frac{f \cdot D}{Z}
+\end{equation}
+对于本实验典型参数（$f \approx 800$ 像素，$D = 2$ cm，$Z = 50$ cm），标记点在图像上的直径约为 $32$ 像素，满足后续轮廓分析与椭圆拟合的精度要求。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\textwidth]{pinhole_model.png}
+\caption{针孔相机成像模型示意图}
+\end{figure}
+
+\subsection{曝光、噪声与运动模糊}
+
+\subsubsection{曝光时间的影响}
+
+曝光时间 $t_{\text{exp}}$ 是影响图像质量的关键参数：
+\begin{itemize}
+    \item \textbf{过曝（Overexposure）}：当光照强度过高或曝光时间过长时，传感器像素饱和，R/G/B 通道值趋近最大值 255。此时颜色信息丢失，标记区域呈现为近白色，HSV 空间中\textbf{饱和度 S 急剧下降}，传统的单一阈值检测失效；
+    \item \textbf{欠曝（Underexposure）}：光照不足时，信号微弱而噪声相对增大，导致信噪比（SNR）降低，阈值分割结果不稳定，易产生散点噪声。
+\end{itemize}
+
+\subsubsection{运动模糊}
+
+当刚体高速旋转时，标记点在曝光时间内扫过一段弧线。设像素域速度为 $v_{\text{px}}$（像素/秒），则运动模糊长度为：
+\begin{equation}
+L_{\text{blur}} \approx v_{\text{px}} \cdot t_{\text{exp}}
+\end{equation}
+运动模糊导致圆形标记的边缘拖影、轮廓拉长，使其在图像中呈现为\textbf{椭圆形甚至条状}形态。这一效应既是挑战（影响拟合精度），也是提示（说明需要放宽长宽比约束以检测侧视/模糊状态的标记）。
+
+本项目将最大长宽比阈值设为 $15.0$，以允许检测严重模糊或侧视角度很大的标记点。
+
+\subsubsection{噪声模型}
+
+相机传感器的噪声主要包括：
+\begin{itemize}
+    \item \textbf{光子噪声（Photon Noise）}：服从泊松分布，与信号强度平方根成正比；
+    \item \textbf{读出噪声（Readout Noise）}：电子电路的固有噪声，与信号无关。
+\end{itemize}
+
+信噪比可近似表示为：
+\begin{equation}
+\text{SNR} \approx \frac{N_{\text{photon}}}{\sqrt{N_{\text{photon}} + N_{\text{readout}}^2}}
+\end{equation}
+在低光照条件下，读出噪声主导，SNR 降低，导致 HSV 颜色值波动加剧。
+
+\subsection{镜头畸变、色差与白平衡}
+
+\subsubsection{径向畸变}
+
+实际镜头存在\textbf{桶形/枕形畸变}，使图像边缘区域的几何位置产生偏移。畸变模型通常写为：
+\begin{equation}
+\begin{aligned}
+x_{\text{distorted}} &= x (1 + k_1 r^2 + k_2 r^4 + \cdots) \\
+y_{\text{distorted}} &= y (1 + k_1 r^2 + k_2 r^4 + \cdots)
+\end{aligned}
+\end{equation}
+其中 $r^2 = x^2 + y^2$，$k_1, k_2$ 为径向畸变系数。
+
+对于高精度轨迹重建，需要通过相机标定获取畸变参数并进行\textbf{去畸变处理}。本项目当前未做相机标定，这可能导致图像边缘区域的标记定位存在 1-3 像素的系统误差。
+
+\subsubsection{色差（Chromatic Aberration）}
+
+由于玻璃对不同波长光的折射率不同，红、绿、蓝三种颜色的成像位置略有偏移。这种\textbf{色差}效应在图像边缘更为显著，可能导致彩色标记边缘出现彩色条纹，影响轮廓提取的精度。
+
+\subsubsection{自动白平衡与曝光}
+
+相机的自动白平衡（AWB）与自动曝光（AE）功能会在视频拍摄过程中动态调整，导致：
+\begin{itemize}
+    \item 同一颜色在不同帧中的 RGB/HSV 值发生漂移；
+    \item 标定好的 HSV 阈值失效，检测率下降。
+\end{itemize}
+
+\textbf{建议}：在正式实验中\textbf{锁定白平衡与曝光参数}，或采用本项目的\textbf{多段 HSV 范围机制}以适应一定范围内的漂移。
+
+\subsection{光照光谱、材料反射与颜色测量}
+
+\subsubsection{颜色形成的物理机制}
+
+相机记录的颜色并非物体的固有属性，而是\textbf{光源光谱、物体反射率与传感器响应}三者共同作用的结果。设传感器某通道（如红色通道）的响应为 $I_R$，则：
+\begin{equation}
+I_R \propto \int_{\lambda} E(\lambda) \cdot R(\lambda) \cdot S_R(\lambda) \, d\lambda
+\end{equation}
+其中：
+\begin{itemize}
+    \item $E(\lambda)$：光源的光谱功率分布（SPD）；
+    \item $R(\lambda)$：物体表面在波长 $\lambda$ 处的反射率；
+    \item $S_R(\lambda)$：传感器红色通道的光谱响应函数。
+\end{itemize}
+
+这解释了\textbf{为什么同一颜色在不同灯光下会呈现不同的 RGB 值}：日光（色温约 5500K）与白炽灯（色温约 2700K）的光谱分布差异显著，即使物体反射率不变，传感器的响应也会不同。
+
+\subsubsection{材料反射特性}
+
+标记点的材质对颜色测量有重要影响：
+\begin{itemize}
+    \item \textbf{光面材料（Glossy）}：具有镜面反射成分，在特定角度产生高光（Specular Highlight），导致局部区域过曝；
+    \item \textbf{哑光材料（Matte）}：漫反射为主，颜色更均匀，但亮度较低。
+\end{itemize}
+
+本项目推荐使用\textbf{哑光贴纸或喷砂膜}作为标记材料，以减少高光干扰。
+
+\subsection{为什么使用 HSV：从光学变化到算法鲁棒性}
+
+\subsubsection{RGB 与 HSV 颜色空间对比}
+
+\textbf{RGB 颜色空间}的三个通道（红、绿、蓝）高度相关且均受亮度影响。当光照增强时，R、G、B 值同时增加，导致难以用固定阈值区分不同颜色。
+
+\textbf{HSV 颜色空间}将颜色分解为：
+\begin{itemize}
+    \item \textbf{H（Hue，色调）}：对应光谱波长，取值 0-179（OpenCV 8-bit 表示），对光照变化最不敏感；
+    \item \textbf{S（Saturation，饱和度）}：颜色的纯度，过曝时趋向 0；
+    \item \textbf{V（Value，亮度）}：光照强度。
+\end{itemize}
+
+这种分离使得在 H 通道上设置阈值可以较稳定地检测特定颜色，而 S、V 通道用于辅助过滤。
+
+\subsubsection{红色的特殊处理}
+
+在 HSV 空间中，H 通道是\textbf{环形的}：纯红色位于 H=0 附近，同时也延伸到 H=180 附近。因此，简单的 `lower[H] < H < upper[H]` 判断对红色无效。
+
+本项目采用\textbf{wrap 处理}：当检测红色时，分别检测 H $\in$ [0, 10] 和 H $\in$ [170, 180] 两个区间，再取并集。
+
+在工程实现上（\texttt{scripts/utils.py} 的 \texttt{detect\_color\_with\_wrap}），对红色（默认 \texttt{color\_id==0}）的环形区间用两种等价方式表达：
+\begin{enumerate}
+    \item \textbf{“跨零区间”表达}：若配置中 \texttt{H\_lower > H\_upper}，则认为区间跨越 0° 边界，自动拆分为 \texttt{[0,H\_upper] $\cup$ [H\_lower,179]} 两段再合并；例如可将红色的 H 写成 \texttt{[173,7]}（\texttt{lower=[173,...]}，\texttt{upper=[7,...]}）；
+    \item \textbf{多段并集表达}：在 \texttt{config/colors.json} 中使用 \texttt{hsv\_ranges} 显式写成两段区间（见附录 B）。
+\end{enumerate}
+
+注：OpenCV 的 Hue 在 8-bit 表示下通常为 0--179；文中写到 180 主要是便于表述上界，代码中也会把上界按 179/180 处理为同一端点附近的范围。

@@ -82,7 +82,7 @@ python src/core/5_render_detection_video.py --video "data/raw/your_video.mp4"
 ├── assets/                     # 演示文稿等资源
 │   └── PPT.pdf                 # 演示文稿
 ├── reports/                    # 论文和报告
-│   └── optics_term_paper.md    # 光学课程论文
+│   └── optics_term_paper.md    # 视觉跟踪相关论文
 ├── requirements.txt            # Python 依赖
 └── README.md                   # 本文件
 ```
@@ -539,10 +539,6 @@ omega = [omega_skew[2,1], omega_skew[0,2], omega_skew[1,0]]
 - 颜色校准: `src/tools/0_color_calibration.py`
 - 视频拾取: `src/tools/0_video_color_picker.py`
 - 实时调试: `src/tools/0_realtime_debug.py`
-
-**论文写作（光学课大作业模板）**:
-- 论文模板（含占位与写作提示）: `docs/optics_term_paper_template.md`
-- 参数表（独立填写）: `docs/parameter_tables.md`
 
 ---
 

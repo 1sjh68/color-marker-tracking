@@ -39,7 +39,7 @@
 ├── assets/                       # 演示文稿等资源
 │   └── PPT.pdf                     # 演示文稿
 ├── reports/                      # 报告目录
-│   └── optics_term_paper.md        # 光学课程论文（主版本）
+│   └── optics_term_paper.md        # 视觉跟踪相关论文
 ├── requirements.txt               # Python 依赖
 ├── install.bat                    # Windows 安装脚本
 ├── README.md                      # 项目说明文档
